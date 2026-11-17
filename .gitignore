@@ -1,0 +1,111 @@
+# ==========================================================
+# Root .gitignore for Tirvona Lead Workspace (Monorepo)
+# Covers: Newbackend (NestJS), lead_app (Flutter), leadTirvona (React/Vite)
+# ==========================================================
+
+# ── Dependencies ──────────────────────────────────────────
+node_modules/
+*/node_modules/
+*/*/node_modules/
+
+# ── Environment Variables & Secret Files (CRITICAL) ───────
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!*/.env.example
+
+# ── Compiled & Production Build Outputs ───────────────────
+dist/
+*/dist/
+build/
+*/build/
+out/
+*/out/
+dist-ssr/
+*/dist-ssr/
+*.tsbuildinfo
+
+# ── Flutter / Mobile Build Artifacts ──────────────────────
+.dart_tool/
+*/.dart_tool/
+.flutter-plugins
+*/.flutter-plugins
+.flutter-plugins-dependencies
+*/.flutter-plugins-dependencies
+.packages
+*/.packages
+.pub-cache/
+*/.pub-cache/
+.pub/
+*/.pub/
+.widget_preview/
+*/.widget_preview/
+
+# ── Android & iOS Binaries & Keystores (No heavy APKs in Git) ─
+*.apk
+*.aab
+*.ipa
+*.keystore
+*.jks
+*.p12
+*.pem
+local.properties
+key.properties
+*/android/local.properties
+*/android/key.properties
+.gradle/
+*/.gradle/
+*/android/.gradle/
+ios/Pods/
+*/ios/Pods/
+
+# ── Logs & Debuggers ──────────────────────────────────────
+*.log
+logs/
+*/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Testing & Coverage ────────────────────────────────────
+coverage/
+*/coverage/
+.nyc_output/
+*/.nyc_output/
+
+# ── IDEs, Editors & Workspaces ────────────────────────────
+.idea/
+*/.idea/
+.vscode/
+*/.vscode/
+*.iml
+*.ipr
+*.iws
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Operating System Junk ─────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+
+# ── Temporary & Cache ─────────────────────────────────────
+.cache/
+*/.cache/
+.temp/
+*/.temp/
+.tmp/
+*/.tmp/
+temp/
+*/temp/
+tmp/
+*/tmp/

@@ -1,0 +1,527 @@
+import { Schema, SchemaTypes } from "../../../../database/orm";
+
+const id = (ref: string, required = false) => ({
+  type: SchemaTypes.ObjectId,
+  ref,
+  required,
+  default: required ? undefined : null,
+});
+const opts = (collection: string) => ({
+  timestamps: true,
+  collection,
+  optimisticConcurrency: true,
+});
+
+export const AshramSchema = new Schema(
+  {
+    ownerId: id("User", true),
+    ashramCode: { type: String, unique: true, sparse: true, index: true },
+    slug: { type: String, sparse: true, index: true, lowercase: true, trim: true },
+    citySlug: { type: String, sparse: true, index: true, lowercase: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    tagline: String,
+    ashramType: String,
+    languages: String,
+    primaryLanguages: [String],
+    establishedYear: String,
+    foundedBy: String,
+    description: { type: String, required: true },
+    history: String,
+    contact: {
+      phone: String,
+      altPhone: String,
+      email: String,
+      website: String,
+      social: { facebook: String, instagram: String, youtube: String },
+    },
+    trust: {
+      trustName: String,
+      trustRegNo: String,
+      panNo: String,
+      trustType: String,
+      registeredBy: String,
+    },
+    activities: [String],
+    dailySchedule: String,
+    specialEvents: String,
+    pricing: {
+      totalCapacity: { type: Number, default: 0 },
+      lowestNightPrice: { type: Number, default: 0 },
+      peakSeasonMultiplier: { type: Number, default: 1.5 },
+      donationInfo: String,
+    },
+    policies: {
+      checkInTime: String,
+      checkOutTime: String,
+      minStay: { type: Number, default: 1 },
+      maxStay: { type: Number, default: 30 },
+      cancellationPolicy: String,
+    },
+    food: {
+      foodType: String,
+      mealTimings: { breakfast: String, lunch: String, dinner: String },
+      prasadDetails: String,
+      specialDiet: String,
+    },
+    transport: {
+      nearestRailway: String,
+      railwayDistance: String,
+      nearestAirport: String,
+      airportDistance: String,
+      busStand: String,
+      busDistance: String,
+      autoRickshaw: Boolean,
+      taxiAvailable: Boolean,
+      parkingAvailable: Boolean,
+    },
+    medical: {
+      nearestHospital: String,
+      hospitalDistance: String,
+      emergencyPhone: String,
+      firstAidAvailable: Boolean,
+      ambulanceAccess: Boolean,
+    },
+    nearbyAttractions: [{ name: String, distance: String, type: String }],
+    rules: [String],
+    address: {
+      street: { type: String, required: true },
+      city: { type: String, required: true },
+      district: { type: String, required: true },
+      state: { type: String, required: true },
+      pincode: { type: String, required: true },
+      coordinates: {
+        type: { type: String, enum: ["Point"], default: "Point" },
+        coordinates: { type: [Number], default: [77.209, 28.613] },
+      },
+    },
+    amenities: [String],
+    addOnServices: [
+      {
+        name: { type: String, required: true },
+        price: { type: Number, required: true, min: 0 },
+        unit: {
+          type: String,
+          enum: ["per_day", "per_meal", "per_person", "one_time", "per_box", "per_bed", "per_night"],
+          default: "per_day",
+        },
+        unitLabel: String,
+        category: { type: String, default: "general" },
+        maxQuantity: { type: Number, default: 10 },
+        enabled: { type: Boolean, default: true },
+        iconUrl: String,
+        description: String,
+      },
+    ],
+    documents: {
+      trustDeedUrl: String,
+      fireSafetyCertificateUrl: String,
+      landOwnershipUrl: String,
+      uploadNotes: String,
+    },
+    images: [String],
+    virtualTour360: [String],
+    videos: [String],
+    rating: {
+      average: { type: Number, default: 0 },
+      count: { type: Number, default: 0 },
+    },
+    isVerified: { type: Boolean, default: false },
+    status: {
+      type: String,
+      enum: [
+        "pending_docs",
+        "pending_inspection",
+        "approved",
+        "rejected",
+        "suspended",
+      ],
+      default: "pending_docs",
+      index: true,
+    },
+    rejectionReason: String,
+    bookingPaused: { type: Boolean, default: false, index: true },
+    bookingPausedAt: { type: Date, default: null },
+    availabilityRequest: {
+      pending: { type: Boolean, default: false },
+      requestedAt: { type: Date, default: null },
+      requestedBy: id("User"),
+    },
+    inspectionDetails: {
+      officerId: id("User"),
+      scheduledDate: Date,
+      reportUrl: String,
+      comments: String,
+      inspectedAt: Date,
+    },
+    dayStayConfig: {
+      enabled: { type: Boolean, default: false, index: true },
+      verificationStatus: {
+        type: String,
+        enum: ["unverified", "pending", "verified", "rejected"],
+        default: "unverified",
+        index: true,
+      },
+      verificationData: {
+        verifiedAt: Date,
+        verifiedBy: id("User"),
+        bathroomConditionScore: Number,
+        roomConditionScore: Number,
+        linenAndTowelsConfirmed: Boolean,
+        hotWaterConfirmed: Boolean,
+        familySuitabilityConfirmed: Boolean,
+        kycProcessConfirmed: Boolean,
+        bathroomPhotos: [String],
+        roomPhotos: [String],
+        notes: String,
+      },
+      operatingHours: {
+        start: { type: String, default: "06:00" },
+        end: { type: String, default: "20:00" },
+      },
+      defaultGraceMinutes: { type: Number, default: 15, min: 0, max: 120 },
+      defaultHousekeepingBufferMinutes: { type: Number, default: 45, min: 0, max: 180 },
+      blackoutDates: [Date],
+      highDemandDates: [Date],
+      isBlockedToday: { type: Boolean, default: false },
+      isBlockedTomorrow: { type: Boolean, default: false },
+      policy: {
+        towelProvided: { type: Boolean, default: true },
+        hotWaterAvailable: { type: Boolean, default: true },
+        attachedBathroom: { type: Boolean, default: true },
+        parkingInfo: {
+          type: { type: String, enum: ["on_site", "partner", "nearby_public", "none"], default: "none" },
+          partnerId: String,
+          distance: String,
+          indicativePrice: Number,
+        },
+        luggageInfo: {
+          available: { type: Boolean, default: true },
+          included: { type: Boolean, default: true },
+          price: { type: Number, default: 0 },
+          hours: String,
+        },
+        houseRules: [String],
+        cancellationPolicy: String,
+      },
+    },
+    createdBy: id("User"),
+    updatedBy: id("User"),
+    deletedAt: Date,
+    deletedBy: id("User"),
+  },
+  opts("ashrams"),
+);
+AshramSchema.index({ "address.coordinates": "2dsphere" });
+AshramSchema.index(
+  { "trust.trustRegNo": 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      "trust.trustRegNo": { $type: "string", $gt: "" },
+    },
+  },
+);
+AshramSchema.index(
+  { "trust.panNo": 1 },
+  {
+    unique: true,
+    partialFilterExpression: { "trust.panNo": { $type: "string", $gt: "" } },
+  },
+);
+AshramSchema.index(
+  { citySlug: 1, slug: 1 },
+  { unique: true, partialFilterExpression: { citySlug: { $type: "string" }, slug: { $type: "string" } } },
+);
+AshramSchema.index({ ownerId: 1 });
+AshramSchema.index({ status: 1, "address.city": 1, "rating.average": -1 });
+AshramSchema.index({ status: 1, "rating.average": -1 });
+AshramSchema.index({ "dayStayConfig.enabled": 1, "dayStayConfig.verificationStatus": 1 });
+
+export const RoomSchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    name: { type: String, required: true, trim: true },
+    type: {
+      type: String,
+      enum: ["dormitory", "private_room", "family_room", "hall"],
+      required: true,
+    },
+    acType: { type: String, enum: ["AC", "Non-AC"], required: true },
+    capacity: { type: Number, required: true, min: 1 },
+    totalInventory: { type: Number, required: true, min: 0 },
+    basePrice: { type: Number, required: true, min: 0 },
+    discountPercent: { type: Number, default: 0, min: 0, max: 90 },
+    discountAmount: { type: Number, default: 0, min: 0 },
+    sellingPrice: { type: Number, min: 0 },
+    isDiscountActive: { type: Boolean, default: true },
+    description: { type: String, trim: true, maxlength: 2000 },
+    amenities: [String],
+    images: [String],
+    pricingRules: [
+      {
+        name: String,
+        startDate: Date,
+        endDate: Date,
+        multiplier: { type: Number, default: 1 },
+        overridePrice: Number,
+      },
+    ],
+    dayStayConfig: {
+      eligible: { type: Boolean, default: false },
+      enabled: { type: Boolean, default: false },
+      allocatedInventory: { type: Number, default: 0, min: 0 },
+      products: [
+        {
+          productCode: { type: String, required: true, uppercase: true, trim: true },
+          productType: { type: String, enum: ["freshen_up", "day_rest"], required: true },
+          durationMinutes: { type: Number, required: true, min: 1 },
+          price: { type: Number, required: true, min: 0 },
+          discountPrice: { type: Number, min: 0, default: 0 },
+          enabled: { type: Boolean, default: true },
+        },
+      ],
+      bathroomType: {
+        type: String,
+        enum: ["attached_private", "dedicated_private", "shared"],
+        default: "attached_private",
+      },
+      hasHotWater: { type: Boolean, default: true },
+      hasTowels: { type: Boolean, default: true },
+    },
+    // Short-lived mutex used to serialize Day Stay slot-hold requests for
+    // this room (see DayStayBookingService.holdSlot). Not a business field.
+    dayStayLockToken: { type: String, select: false },
+    dayStayLockExpiresAt: { type: Date, select: false },
+    status: {
+      type: String,
+      enum: ["active", "under_maintenance"],
+      default: "active",
+    },
+    deletedAt: Date,
+  },
+  opts("rooms"),
+);
+RoomSchema.index({ ashramId: 1, status: 1 });
+RoomSchema.index({ type: 1 });
+RoomSchema.index({ ashramId: 1, "dayStayConfig.enabled": 1 });
+
+export const RoomRateSchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    roomId: id("Room", true),
+    mrp: { type: Number, required: true, min: 0 },
+    discountPercent: { type: Number, required: true, min: 0, max: 90, default: 0 },
+    discountAmount: { type: Number, required: true, min: 0, default: 0 },
+    sellingPrice: { type: Number, required: true, min: 0 },
+    isDiscountActive: { type: Boolean, default: true },
+    isActive: { type: Boolean, default: true },
+    pricingType: {
+      type: String,
+      enum: ["standard", "seasonal", "weekend"],
+      default: "standard",
+    },
+    validFrom: Date,
+    validUntil: Date,
+    daysOfWeek: [Number],
+    notes: String,
+    createdBy: id("User"),
+    updatedBy: id("User"),
+  },
+  opts("room_rates"),
+);
+RoomRateSchema.index({ roomId: 1 }, { unique: true });
+RoomRateSchema.index({ ashramId: 1, isDiscountActive: 1 });
+
+export const BookingInventorySchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    roomId: id("Room", true),
+    date: { type: Date, required: true },
+    totalInventory: { type: Number, required: true, min: 0 },
+    heldCount: { type: Number, default: 0, min: 0 },
+    bookedCount: { type: Number, default: 0, min: 0 },
+    onlineBookedCount: { type: Number, default: 0, min: 0 },
+    offlineBookedCount: { type: Number, default: 0, min: 0 },
+    transferredFromOfflineCount: { type: Number, default: 0, min: 0 },
+    maintenanceCount: { type: Number, default: 0, min: 0 },
+    customPrice: Number,
+    isClosed: { type: Boolean, default: false },
+    note: String,
+    // Written whenever a Short Stay is held for this room around this night.
+    // An overnight hold in flight on the same row then hits a write conflict
+    // and retries, so it re-reads Short Stay bookings before committing.
+    dayStayTouchedAt: Date,
+  },
+  opts("booking_daily_availability"),
+);
+BookingInventorySchema.index({ roomId: 1, date: 1 }, { unique: true });
+BookingInventorySchema.index({ ashramId: 1, date: 1 });
+
+export const BookingPricingSchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    roomId: id("Room"),
+    name: { type: String, required: true },
+    validFrom: Date,
+    validUntil: Date,
+    daysOfWeek: [Number],
+    multiplier: { type: Number, default: 1 },
+    overridePrice: Number,
+    minStay: Number,
+    taxPercent: Number,
+    platformFeePercent: Number,
+    priority: { type: Number, default: 0 },
+    isActive: { type: Boolean, default: true },
+    updatedBy: id("User"),
+  },
+  opts("booking_pricing"),
+);
+BookingPricingSchema.index({
+  ashramId: 1,
+  roomId: 1,
+  isActive: 1,
+  validFrom: 1,
+  validUntil: 1,
+});
+
+export const BookingAddonSchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    name: { type: String, required: true },
+    price: { type: Number, required: true, min: 0 },
+    unit: {
+      type: String,
+      enum: ["per_day", "per_meal", "per_person", "one_time", "per_box", "per_bed", "per_night"],
+      default: "per_day",
+    },
+    unitLabel: String,
+    category: { type: String, default: "general" },
+    maxQuantity: { type: Number, default: 10 },
+    enabled: { type: Boolean, default: true },
+    iconUrl: String,
+    description: String,
+    createdBy: id("User"),
+  },
+  opts("booking_addons"),
+);
+BookingAddonSchema.index({ ashramId: 1, enabled: 1 });
+
+export const HousekeepingUnitSchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    roomId: id("Room"),
+    unitNumber: { type: String, required: true },
+    bookingId: id("Booking"),
+    status: {
+      type: String,
+      enum: ["clean", "dirty", "cleaning", "maintenance"],
+      default: "clean",
+      index: true,
+    },
+    priority: {
+      type: String,
+      enum: ["low", "normal", "high", "urgent"],
+      default: "normal",
+    },
+    assignedTo: id("User"),
+    notes: String,
+    lastCleanedAt: Date,
+    inspectedBy: id("User"),
+    inspectedAt: Date,
+    version: { type: Number, default: 1 },
+  },
+  opts("booking_housekeeping"),
+);
+HousekeepingUnitSchema.index({ ashramId: 1, unitNumber: 1 }, { unique: true });
+HousekeepingUnitSchema.index({ ashramId: 1, status: 1 });
+
+export const OFFLINE_ROOM_STATUSES = ["active", "inactive"] as const;
+
+export const OfflineRoomSchema = new Schema(
+  {
+    ashramId: id("Ashram", true),
+    roomId: id("Room", true),
+    label: { type: String, required: true, trim: true },
+    totalUnits: { type: Number, required: true, min: 0 },
+    transferredUnits: { type: Number, default: 0, min: 0 },
+    blockedUnits: { type: Number, default: 0, min: 0 },
+    status: {
+      type: String,
+      enum: OFFLINE_ROOM_STATUSES,
+      default: "active",
+      index: true,
+    },
+    notes: { type: String, default: "" },
+    createdBy: id("User"),
+    updatedBy: id("User"),
+    deletedAt: { type: Date, default: null, index: true },
+  },
+  opts("offline_rooms"),
+);
+OfflineRoomSchema.index({ ashramId: 1, status: 1, deletedAt: 1 });
+OfflineRoomSchema.index({ ashramId: 1, roomId: 1 });
+
+export const OfflineInventoryTransferSchema = new Schema(
+  {
+    reference: { type: String, required: true, unique: true },
+    ashramId: id("Ashram", true),
+    offlineRoomId: id("OfflineRoom", true),
+    roomId: id("Room", true),
+    units: { type: Number, required: true, min: 1 },
+    fromDate: { type: Date, required: true },
+    toDate: { type: Date, required: true },
+    datesCovered: { type: Number, default: 0 },
+    reason: { type: String, default: "" },
+    performedBy: id("User", true),
+    performedByRole: String,
+    offlineAvailableBefore: Number,
+    offlineAvailableAfter: Number,
+  },
+  opts("offline_inventory_transfers"),
+);
+OfflineInventoryTransferSchema.index({ ashramId: 1, createdAt: -1 });
+OfflineInventoryTransferSchema.index({ offlineRoomId: 1, createdAt: -1 });
+
+export const RETURN_REQUEST_STATUSES = [
+  "pending",
+  "approved",
+  "rejected",
+  "cancelled",
+] as const;
+
+export const InventoryReturnRequestSchema = new Schema(
+  {
+    reference: { type: String, required: true, unique: true },
+    ashramId: id("Ashram", true),
+    offlineRoomId: id("OfflineRoom", true),
+    roomId: id("Room", true),
+    units: { type: Number, required: true, min: 1 },
+    fromDate: { type: Date, required: true },
+    toDate: { type: Date, required: true },
+    datesCovered: { type: Number, default: 0 },
+    reason: { type: String, default: "" },
+    status: {
+      type: String,
+      enum: RETURN_REQUEST_STATUSES,
+      default: "pending",
+      index: true,
+    },
+    requestedBy: id("User", true),
+    requestedByRole: String,
+    decidedBy: id("User"),
+    decidedByRole: String,
+    decidedAt: Date,
+    rejectionReason: { type: String, default: "" },
+    onlineInventoryBefore: Number,
+    offlineAvailableBefore: Number,
+    onlineInventoryAfter: Number,
+    offlineAvailableAfter: Number,
+  },
+  opts("inventory_return_requests"),
+);
+InventoryReturnRequestSchema.index({
+  ashramId: 1,
+  status: 1,
+  createdAt: -1,
+});
+InventoryReturnRequestSchema.index({ offlineRoomId: 1, createdAt: -1 });

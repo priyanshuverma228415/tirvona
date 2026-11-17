@@ -1,0 +1,82 @@
+# ==========================================
+# lead_app (Flutter / Dart) .gitignore
+# ==========================================
+
+# ── Miscellaneous & OS ───────────────────
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+Thumbs.db
+Desktop.ini
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# ── IntelliJ / Android Studio ────────────
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# ── Visual Studio Code ───────────────────
+.vscode/
+
+# ── Flutter / Dart / Pub ─────────────────
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+/build/
+coverage/
+/coverage/
+
+# ── Android Build Artifacts & Configs ────
+/android/app/debug
+/android/app/profile
+/android/app/release
+android/local.properties
+android/key.properties
+android/.gradle/
+.gradle/
+android/captures/
+android/.idea/
+
+# ── Keystores & Signing Keys ─────────────
+*.keystore
+*.jks
+*.p12
+*.pem
+
+# ── Application Binaries (No APKs/AABs in Git) ──
+*.apk
+*.aab
+*.ipa
+
+# ── iOS / macOS Build Artifacts ──────────
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/app.framework
+ios/Flutter/flutter_assets/
+macos/Pods/
+macos/Flutter/ephemeral
+
+# ── Symbolication & Obfuscation ──────────
+app.*.symbols
+app.*.map.json
+
+# ── Widget Preview ───────────────────────
+.widget_preview/

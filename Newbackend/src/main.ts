@@ -1,0 +1,172 @@
+import {
+  ValidationPipe,
+  VERSION_NEUTRAL,
+  VersioningType,
+} from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import compression from "compression";
+import helmet from "helmet";
+import { Logger } from "nestjs-pino";
+import { ConfigService } from "@nestjs/config";
+import { AppModule } from "./app.module";
+import { applyDnsServersFromEnvironment } from "./config/environment";
+import { ApiExceptionFilter } from "./common/filters/api-exception.filter";
+import { RequestIdInterceptor } from "./common/interceptors/request-id.interceptor";
+import { configureDatabase } from "./database/database";
+import {
+  devRequestLogMiddleware,
+  perfEnabled,
+  requestPerfMiddleware,
+  startEventLoopMonitor,
+} from "./common/perf/request-perf";
+
+// Prevent transient idle socket resets (e.g. Supabase pooler idle disconnects) from crashing the server
+process.on("uncaughtException", (error: any) => {
+  if (
+    error?.code === "ECONNRESET" ||
+    error?.code === "ETIMEDOUT" ||
+    error?.code === "EPIPE" ||
+    error?.message?.includes("ECONNRESET") ||
+    error?.message?.includes("Connection terminated")
+  ) {
+    console.warn("[Process] Handled transient connection drop:", error.message);
+    return;
+  }
+  console.error("[Process] Uncaught exception:", error);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+  console.warn(
+    "[Process] Unhandled rejection:",
+    reason?.message || reason?.toString(),
+  );
+});
+
+async function bootstrap(): Promise<void> {
+  const isProduction = process.env.NODE_ENV === "production";
+  applyDnsServersFromEnvironment();
+  // Must run before any model connection exists.
+  configureDatabase();
+
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true,
+    bufferLogs: isProduction,
+    // Local runs print only warnings, errors and the ready banner below; the
+    // per-module and per-route startup lines are noise. NEST_LOG=verbose
+    // brings the full Nest log back when debugging startup.
+    logger: isProduction
+      ? undefined
+      : process.env.NEST_LOG === "verbose"
+        ? ["error", "warn", "log"]
+        : ["error", "warn"],
+  });
+  app.enableShutdownHooks();
+  const config = app.get(ConfigService);
+  if (isProduction) app.useLogger(app.get(Logger));
+  app.setGlobalPrefix("api", {
+    exclude: ["robots.txt", "sitemap.xml"],
+  });
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: VERSION_NEUTRAL,
+  });
+  if (perfEnabled()) {
+    app.use(requestPerfMiddleware());
+    startEventLoopMonitor();
+  }
+  if (!isProduction && process.env.REQUEST_LOG !== "false")
+    app.use(devRequestLogMiddleware());
+  app.use(helmet());
+  app.use(compression());
+  if (config.get<boolean>("trustProxy"))
+    app.getHttpAdapter().getInstance().set("trust proxy", 1);
+  app.enableCors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin) return callback(null, true);
+      const configured = config.get<string[]>("corsOrigins") ?? [];
+      const normalized = origin.trim().replace(/\/+$/, "");
+      const allowed = [
+        "https://tirvona.com",
+        "https://www.tirvona.com",
+        "https://api.tirvona.com",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:3000",
+        ...configured,
+      ];
+      if (
+        allowed.includes(normalized) ||
+        /^https:\/\/([a-zA-Z0-9-]+\.)*tirvona\.com$/.test(normalized) ||
+        (!isProduction &&
+          (/^http:\/\/localhost:[0-9]+$/.test(normalized) ||
+            /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(normalized)))
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "X-Request-Id",
+      "X-Session-Id",
+      "Idempotency-Key",
+    ],
+    maxAge: 86_400,
+  });
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      stopAtFirstError: false,
+    }),
+  );
+  app.useGlobalFilters(new ApiExceptionFilter());
+  app.useGlobalInterceptors(new RequestIdInterceptor());
+
+  if (config.get<boolean>("swaggerEnabled")) {
+    const swagger = new DocumentBuilder()
+      .setTitle("Tirvona API")
+      .setDescription(
+        "Tirvona Platform API and Partner Developer Platform (v1)\n\n" +
+          "### Partner Authentication\n" +
+          "Partner endpoints under `/api/v1/` require an API Key supplied in the `X-API-Key` header with either `tv_test_` or `tv_live_` prefix.\n\n" +
+          "### Webhook Signatures\n" +
+          "Webhook event deliveries contain the header `X-Tirvona-Signature: t=<timestamp>,v1=<signature>`, where signature is an HMAC-SHA256 hex digest of `t=<timestamp>.<rawPayload>` keyed by your webhook signing secret (`whsec_...`).",
+      )
+      .setVersion("1.0")
+      .addBearerAuth()
+      .addApiKey({ type: "apiKey", name: "X-API-Key", in: "header" }, "ApiKeyAuth")
+      .build();
+    SwaggerModule.setup(
+      "api/docs",
+      app,
+      SwaggerModule.createDocument(app, swagger),
+    );
+  }
+
+  const port = config.get<number>("port") ?? 5000;
+  await app.listen(port, config.get<string>("host") ?? "0.0.0.0");
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 185_000;
+  server.requestTimeout = 180_000;
+  if (!isProduction)
+    process.stdout.write(
+      `Tirvona API ready: http://localhost:${port}/api (database: Supabase Postgres)\n` +
+        `Health check: http://localhost:${port}/api/health\n`,
+    );
+}
+
+void bootstrap().catch((error: unknown) => {
+  const message =
+    error instanceof Error ? error.stack || error.message : String(error);
+  process.stderr.write(`Tirvona API failed to start: ${message}\n`);
+  process.exitCode = 1;
+});

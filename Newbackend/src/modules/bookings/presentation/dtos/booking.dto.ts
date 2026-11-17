@@ -1,0 +1,243 @@
+import { PartialType } from "@nestjs/swagger";
+import { BOOKING_CHANNELS } from "../../domain/booking.utils";
+import { Type } from "class-transformer";
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Matches,
+  Min,
+  MinLength,
+  ValidateIf,
+  ValidateNested,
+} from "class-validator";
+import { IsEntityId } from "../../../../common/decorators/is-entity-id.decorator";
+
+export class RoomBookingDto {
+  @IsEntityId() roomId: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(20) units: number;
+}
+
+export class CreateBookingDto {
+  @IsEntityId() ashramId: string;
+  @IsOptional() @IsEntityId() roomId?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoomBookingDto)
+  rooms?: RoomBookingDto[];
+  @IsString() checkInDate: string;
+  @IsString() checkOutDate: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100) guestsCount: number;
+  @Type(() => Number) @IsInt() @Min(1) @Max(20) roomsBookedCount: number;
+  @IsOptional() @IsObject() services?: Record<string, any>;
+  @IsOptional() @IsString() promoCode?: string;
+  @IsOptional() @IsEntityId() appliedOfferId?: string;
+  @IsOptional() @IsString() specialRequests?: string;
+  @IsOptional() @IsArray() guests?: Record<string, any>[];
+}
+
+export class ConfirmBookingPaymentDto {
+  @IsOptional() @IsString() razorpay_order_id?: string;
+  @IsOptional() @IsString() razorpay_payment_id?: string;
+  @IsOptional() @IsString() razorpay_signature?: string;
+  @IsOptional()
+  @IsIn(["razorpay", "upi", "cards", "net_banking", "cash", "demo"])
+  method = "demo";
+  @IsOptional() @IsString() idempotencyKey?: string;
+  @IsOptional() @IsString() transactionId?: string;
+}
+
+export class ManualConfirmBookingDto {
+  @IsIn(["cash", "upi", "net_banking", "cards", "offline"])
+  paymentMode: string;
+  @IsOptional() @IsString() transactionReference?: string;
+  @IsOptional() @IsString() note?: string;
+}
+
+export class BookingDashboardQueryDto {
+  @IsOptional() @IsString() status?: string;
+  @IsOptional() @IsString() paymentStatus?: string;
+  @IsOptional() @IsEntityId() ashramId?: string;
+  @IsOptional() @IsIn(["tirvona", "self", "all"]) source?: string;
+  /**
+   * Optional reporting filter on the interface a booking arrived through.
+   * Distinct from `source`, which is platform-vs-walk-in and must keep its
+   * existing meaning — a WhatsApp booking is `source: "tirvona"`.
+   */
+  @IsOptional()
+  @IsIn([...BOOKING_CHANNELS, "all"])
+  channel?: string;
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsString() date?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
+}
+
+export class CheckinDto {
+  @IsString()
+  @Matches(/^(\d{4}|\d{6})$/, {
+    message: "Check-in code must be 4 digits (or a legacy 6-digit code)",
+  })
+  checkInCode: string;
+  @IsOptional() @IsArray() roomNumbers?: string[];
+  @IsOptional() @IsString() notes?: string;
+}
+export class CheckoutDto {
+  @IsOptional() @IsString() notes?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) additionalCharges = 0;
+  @IsOptional() @IsArray() damages?: Record<string, any>[];
+}
+export class CancelBookingDto {
+  @IsString() @MinLength(2) reason: string;
+}
+export class RoomNumberGroupDto {
+  @IsEntityId() roomId: string;
+  @IsArray() @IsString({ each: true }) @MinLength(1, { each: true }) roomNumbers: string[];
+}
+export class AssignRoomDto {
+  @IsOptional() @IsArray() @IsString({ each: true }) @MinLength(1, { each: true }) roomNumbers?: string[];
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoomNumberGroupDto)
+  rooms?: RoomNumberGroupDto[];
+}
+export class UpdateBookingStatusDto {
+  @IsIn([
+    "pending",
+    "confirmed",
+    "checked_in",
+    "checked_out",
+    "completed",
+    "cancelled",
+    "refunded",
+    "no_show",
+  ])
+  status: string;
+  @IsOptional() @IsString() note?: string;
+}
+
+export class AdminUpdateBookingDto {
+  @IsOptional() @IsArray()
+  assignedRoomNumbers?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoomNumberGroupDto)
+  roomAssignments?: RoomNumberGroupDto[];
+
+  @IsOptional() @IsString() @MaxLength(1000)
+  specialRequests?: string;
+}
+
+export class ValidatePromoDto {
+  @IsString() promoCode: string;
+  @Type(() => Number) @IsNumber() @Min(0) bookingAmount: number;
+  @IsOptional() @IsEntityId() ashramId?: string;
+}
+export class SaveOfferDto {
+  @IsString() offerTitle: string;
+  @IsString() description: string;
+  @IsString() promoCode: string;
+  @IsIn([
+    "Percentage",
+    "Flat Amount",
+    "Free Upgrade",
+    "Free Meal",
+    "Free Prasad",
+    "Free Donation Coupon",
+  ])
+  discountType: string;
+  @Type(() => Number) @IsNumber() @Min(0) discountValue: number;
+  @IsString() validTill: string;
+  @IsOptional() @IsEntityId() ashramId?: string | null;
+  @IsOptional()
+  @ValidateIf((o) => Boolean(o.roomId))
+  @IsEntityId()
+  roomId?: string | null;
+  @IsOptional()
+  @IsBoolean()
+  isLastMinuteDeal?: boolean;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  maximumDiscount?: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minimumBookingAmount?: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  maximumRedemptions?: number;
+  @IsOptional() @IsObject() extra?: Record<string, any>;
+  @IsOptional() @IsString() shortTitle?: string;
+  @IsOptional() @IsString() subtitle?: string;
+  @IsOptional() @IsString() offerType?: string;
+  @IsOptional() @IsArray() applicableAshrams?: string[];
+  @IsOptional() @IsString() fullHtmlDescription?: string;
+  @IsOptional() @IsArray() highlights?: string[];
+  @IsOptional() @IsArray() termsAndConditions?: string[];
+  @IsOptional() @IsString() bannerImage?: string;
+  @IsOptional() @IsString() thumbnailImage?: string;
+  @IsOptional() @IsString() desktopBanner?: string;
+  @IsOptional() @IsString() mobileBanner?: string;
+  @IsOptional() @IsArray() galleryImages?: string[];
+  @IsOptional() @IsString() validFrom?: string;
+  @IsOptional() @IsString() targetRoute?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) perUserLimit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() priority?: number;
+  @IsOptional() featured?: boolean;
+  @IsOptional()
+  @IsIn(["draft", "scheduled", "active", "expired", "disabled"])
+  status?: string;
+}
+
+export class UpdateOfferDto extends PartialType(SaveOfferDto) {}
+
+export class UpdateOfferStatusDto {
+  @IsIn(["draft", "scheduled", "active", "expired", "disabled"])
+  status: string;
+}
+
+export class ReviewRatingDto {
+  @Type(() => Number) @IsNumber() @Min(1) @Max(5) overall: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(1) @Max(5)
+  cleanliness?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(1) @Max(5)
+  service?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(1) @Max(5)
+  location?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(1) @Max(5)
+  valueForMoney?: number;
+}
+export class CreateReviewDto {
+  @IsOptional() @IsEntityId() bookingId?: string;
+  @IsEntityId() ashramId: string;
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ReviewRatingDto)
+  rating: ReviewRatingDto;
+  @IsString() @MinLength(2) @MaxLength(1500) comment: string;
+  /** Super admin only: the reviewer name shown publicly. */
+  @IsOptional() @IsString() @MaxLength(80) displayName?: string;
+}
+export class ReviewStatusDto {
+  @IsIn(["approved", "hidden"]) status: "approved" | "hidden";
+}
+export class ReviewDisplayNameDto {
+  /** Empty clears it, so the author's account name shows again. */
+  @IsString() @MaxLength(80) displayName: string;
+}

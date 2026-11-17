@@ -1,0 +1,419 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectModel } from "../../../database/orm-nest";
+import type { Model } from "../../../database/orm";
+import {
+  PLATFORM_FEE_GST_PERCENT,
+  eachNight,
+  platformFeeGst,
+  resolveBookingAddon,
+  roundMoney,
+} from "../domain/booking.utils";
+import { resolvePlatformFee } from "../../platform-settings/domain/platform-fee";
+import type { CreateBookingDto } from "../presentation/dtos/booking.dto";
+import { startOfToday } from "./offers.service";
+import {
+  createTestCouponObject,
+  isTestPromoCode,
+} from "../domain/test-coupon.constants";
+
+@Injectable()
+export class BookingPricingService {
+  constructor(
+    @InjectModel("Room") private readonly rooms: Model<any>,
+    @InjectModel("BookingInventory") private readonly inventory: Model<any>,
+    @InjectModel("BookingAddon") private readonly addons: Model<any>,
+    @InjectModel("BookingPricing") private readonly pricingRules: Model<any>,
+    @InjectModel("BookingCoupon") private readonly coupons: Model<any>,
+    @InjectModel("BookingPolicy") private readonly policies: Model<any>,
+    @InjectModel("PlatformSettings") private readonly settings: Model<any>,
+    @InjectModel("Ashram") private readonly ashrams: Model<any>,
+  ) {}
+
+  async quote(dto: CreateBookingDto): Promise<any> {
+    const ashramAvailability = await this.ashrams
+      .findOne({ _id: dto.ashramId, deletedAt: null })
+      .select("status bookingPaused")
+      .lean();
+    if (!ashramAvailability || ashramAvailability.status !== "approved")
+      throw new BadRequestException("This stay is not currently accepting bookings.");
+    if (ashramAvailability.bookingPaused)
+      throw new BadRequestException(
+        "This stay's owner has temporarily marked it unavailable for booking.",
+      );
+    const start = new Date(dto.checkInDate);
+    const end = new Date(dto.checkOutDate);
+    if (
+      !Number.isFinite(start.getTime()) ||
+      !Number.isFinite(end.getTime()) ||
+      start >= end
+    )
+      throw new BadRequestException(
+        "Check-out date must be after check-in date",
+      );
+    const dates = eachNight(start, end);
+    if (!dates.length || dates.length > 30)
+      throw new BadRequestException("A stay must be between 1 and 30 nights");
+    const rawRooms = Array.isArray(dto.rooms) && dto.rooms.length
+      ? dto.rooms
+      : dto.roomId
+        ? [{ roomId: dto.roomId, units: Math.max(1, Number(dto.roomsBookedCount) || 1) }]
+        : [];
+    if (!rawRooms.length) {
+      throw new BadRequestException("Please select at least one room category");
+    }
+    const roomIds = rawRooms.map((r) => r.roomId);
+    const dbRooms = await this.rooms
+      .find({
+        _id: { $in: roomIds },
+        ashramId: dto.ashramId,
+        status: "active",
+        deletedAt: null,
+      })
+      .lean();
+    if (dbRooms.length !== roomIds.length) {
+      throw new NotFoundException("One or more room categories not found");
+    }
+
+    for (const r of dbRooms) {
+      if (
+        r.totalInventory !== undefined &&
+        r.totalInventory !== null &&
+        Number(r.totalInventory) <= 0
+      ) {
+        throw new BadRequestException(
+          `Room category "${r.name}" has 0 inventory and cannot be booked`,
+        );
+      }
+      if (
+        r.basePrice !== undefined &&
+        r.basePrice !== null &&
+        Number(r.basePrice) <= 0
+      ) {
+        throw new BadRequestException(
+          `Room category "${r.name}" has no valid online booking price configured`,
+        );
+      }
+    }
+
+    let totalCapacity = 0;
+    const roomMap = new Map();
+    for (const r of dbRooms) {
+       roomMap.set(String(r._id), r);
+    }
+    for (const r of rawRooms) {
+       const dbRoom = roomMap.get(String(r.roomId));
+       totalCapacity += (dbRoom.capacity || 1) * r.units;
+    }
+
+    if (dto.guestsCount > totalCapacity)
+      throw new BadRequestException(
+        "Guest count exceeds the selected rooms capacity",
+      );
+    const [availability, rules, addonRows, policy, settings, ashram] =
+      await Promise.all([
+        this.inventory.find({ roomId: { $in: roomIds }, date: { $in: dates } }).lean(),
+        this.pricingRules
+          .find({
+            ashramId: dto.ashramId,
+            isActive: true,
+            $or: [{ roomId: null }, { roomId: { $in: roomIds } }],
+          })
+          .sort({ priority: -1 })
+          .lean(),
+        this.addons.find({ ashramId: dto.ashramId, enabled: true }).lean(),
+        this.policies
+          .findOne({
+            $or: [
+              { scope: "ashram", ashramId: dto.ashramId },
+              { scope: "platform" },
+            ],
+            isActive: true,
+          })
+          .sort({ scope: 1 })
+          .lean(),
+        this.settings.findOne({ key: "main" }).lean(),
+        this.ashrams
+          .findOne({
+            _id: dto.ashramId,
+            status: "approved",
+            deletedAt: null,
+          })
+          .select("addOnServices ashramType listingType type name")
+          .lean(),
+      ]);
+
+    let basePrice = 0;
+    let totalRoomMrp = 0;
+    for (const date of dates) {
+      const dateString = date.toISOString().slice(0, 10);
+      for (const reqRoom of rawRooms) {
+        const room = roomMap.get(String(reqRoom.roomId));
+        const dayAvailability = availability.find(
+          (r: any) => String(r.roomId) === String(reqRoom.roomId) && new Date(r.date).toISOString().slice(0, 10) === dateString
+        );
+        
+        const rule = rules.find(
+          (r: any) =>
+            (!r.validFrom || date >= new Date(r.validFrom)) &&
+            (!r.validUntil || date <= new Date(r.validUntil)) &&
+            (!r.daysOfWeek?.length || r.daysOfWeek.includes(date.getUTCDay())) &&
+            (!r.roomId || String(r.roomId) === String(reqRoom.roomId))
+        );
+        const embedded = room.pricingRules?.find(
+          (r: any) =>
+            date >= new Date(r.startDate) && date <= new Date(r.endDate),
+        );
+
+        const mrp = Number(room.basePrice) || 0;
+        const isRateDiscountActive =
+          room.isDiscountActive !== false && (Number(room.discountPercent) || 0) > 0;
+        const discountPercentage = isRateDiscountActive
+          ? Math.min(90, Math.max(0, Number(room.discountPercent) || 0))
+          : 0;
+        const discountAmount = isRateDiscountActive
+          ? roundMoney((mrp * discountPercentage) / 100)
+          : 0;
+        const effectiveSellingPrice = isRateDiscountActive
+          ? Math.max(0, roundMoney(mrp - discountAmount))
+          : mrp;
+
+        const daily =
+          dayAvailability?.customPrice ??
+          rule?.overridePrice ??
+          embedded?.overridePrice ??
+          effectiveSellingPrice * (rule?.multiplier ?? embedded?.multiplier ?? 1);
+        basePrice += daily * reqRoom.units;
+        totalRoomMrp += mrp * reqRoom.units;
+      }
+    }
+    const totalRoomSavings = Math.max(0, roundMoney(totalRoomMrp - basePrice));
+
+    const roomsSnapshot = rawRooms.map((reqRoom) => {
+      const room = roomMap.get(String(reqRoom.roomId));
+      const mrp = Number(room.basePrice) || 0;
+      const isRateDiscountActive =
+        room.isDiscountActive !== false && (Number(room.discountPercent) || 0) > 0;
+      const discountPercentage = isRateDiscountActive
+        ? Math.min(90, Math.max(0, Number(room.discountPercent) || 0))
+        : 0;
+      const discountAmount = isRateDiscountActive
+        ? roundMoney((mrp * discountPercentage) / 100)
+        : 0;
+      const effectiveSellingPrice = isRateDiscountActive
+        ? Math.max(0, roundMoney(mrp - discountAmount))
+        : mrp;
+      return {
+        roomId: String(room._id),
+        roomName: room.name,
+        units: reqRoom.units,
+        mrp,
+        discountPercentage,
+        discountAmount,
+        sellingPrice: effectiveSellingPrice,
+        totalPrice: effectiveSellingPrice * reqRoom.units * dates.length,
+      };
+    });
+    const selected: any[] = [];
+    let servicesPrice = 0;
+    const requested = Array.isArray(dto.services?.selectedAddOns)
+      ? dto.services!.selectedAddOns
+      : [];
+    for (const item of requested) {
+      const addon = resolveBookingAddon(
+        addonRows,
+        Array.isArray(ashram?.addOnServices) ? ashram.addOnServices : [],
+        item.serviceId ?? item._id,
+      );
+      if (!addon)
+        throw new BadRequestException("A selected add-on is unavailable");
+      const quantity = Math.min(
+        Math.max(1, Number.parseInt(item.quantity, 10) || 1),
+        addon.maxQuantity ?? 10,
+      );
+      const multiplier =
+        addon.unit === "per_day" || addon.unit === "per_bed" || addon.unit === "per_night"
+          ? dates.length
+          : addon.unit === "per_person"
+            ? dto.guestsCount
+            : 1;
+      const totalPrice = addon.price * quantity * multiplier;
+      servicesPrice += totalPrice;
+      selected.push({
+        serviceId: String(addon._id),
+        name: addon.name,
+        price: addon.price,
+        unit: addon.unit,
+        unitLabel: addon.unitLabel,
+        quantity,
+        totalPrice,
+      });
+    }
+    const defaults = {
+      prasad: 100 * dto.guestsCount,
+      meals: 150 * dto.guestsCount * dates.length,
+      parking: 100 * dates.length,
+      locker: 50 * dates.length,
+    };
+    const services: any = {
+      selectedAddOns: selected,
+      donation: {
+        amount: 0,
+      },
+    };
+    for (const key of Object.keys(defaults) as (keyof typeof defaults)[]) {
+      const ordered = Boolean(dto.services?.[key]?.ordered);
+      const price = ordered ? defaults[key] : 0;
+      services[key] = { ordered, price };
+      servicesPrice += price;
+    }
+    const donationAmount = 0;
+    const originalAmount = basePrice + servicesPrice;
+    // Guests are already capped at the selected rooms' capacity above, so
+    // every guest is covered by the room rate; there is no extra-guest charge.
+    const extraGuestAmount = 0;
+
+    const totalUnits = rawRooms.reduce((sum, r) => sum + r.units, 0);
+    const isCharitable = Boolean(
+      /trust|charitable|dharamshala/i.test(
+        String(
+          ashram?.ashramType ||
+            ashram?.listingType ||
+            ashram?.type ||
+            ashram?.name ||
+            "",
+        ),
+      ),
+    );
+
+    // The platform fee and its GST come only from the admin Platform Fee
+    // settings; a disabled or out-of-scope fee charges nothing, charitable
+    // stays are commission-free (0 fee), and GST is levied on the platform fee alone.
+    const platformFee = isCharitable
+      ? 0
+      : resolvePlatformFee({
+          settings: settings?.platformFee,
+          scope: "ashram_booking",
+          baseAmount: originalAmount,
+          policyPercent: policy?.platformFeePercent,
+          roomsCount: totalUnits,
+          isCharitable,
+        });
+    const gstPercent =
+      platformFee > 0
+        ? Number(settings?.platformFeeGstRate ?? PLATFORM_FEE_GST_PERCENT)
+        : 0;
+    const gstAmount = platformFeeGst(platformFee, gstPercent);
+
+    const grossPayable = originalAmount + extraGuestAmount + platformFee + gstAmount;
+
+    let coupon: any = null;
+    let discountAmount = 0;
+    const inputCode = (dto.promoCode || "").trim().toUpperCase();
+
+    if (isTestPromoCode(inputCode)) {
+      discountAmount = Math.max(0, roundMoney(grossPayable - 1));
+      coupon = createTestCouponObject(discountAmount);
+    } else if (dto.promoCode || dto.appliedOfferId) {
+      coupon = await this.coupons
+        .findOne({
+          ...(dto.appliedOfferId
+            ? { _id: dto.appliedOfferId }
+            : { promoCode: dto.promoCode!.trim().toUpperCase() }),
+          status: "active",
+          validTill: { $gte: startOfToday() },
+          $or: [{ validFrom: null }, { validFrom: { $lte: new Date() } }],
+          remainingRedemptions: { $gt: 0 },
+        })
+        .lean();
+      if (!coupon || grossPayable < (coupon.minimumBookingAmount ?? 0))
+        throw new BadRequestException(
+          "Promo code is invalid or not applicable",
+        );
+      if (coupon.ashramId && String(coupon.ashramId) !== dto.ashramId)
+        throw new BadRequestException(
+          "Promo code is not valid for this ashram",
+        );
+      if (
+        coupon.applicableAshrams?.length &&
+        !coupon.applicableAshrams.some((id: any) => String(id) === dto.ashramId)
+      )
+        throw new BadRequestException(
+          "Promo code is not valid for this ashram",
+        );
+      if (coupon.roomId && dto.rooms && !dto.rooms.some(r => String(r.roomId) === String(coupon.roomId)))
+        throw new BadRequestException(
+          "Promo code is only valid for its designated room category",
+        );
+      discountAmount =
+        coupon.discountType === "Percentage"
+          ? (grossPayable * coupon.discountValue) / 100
+          : coupon.discountType === "Flat Amount"
+            ? coupon.discountValue
+            : 0;
+      discountAmount = roundMoney(
+        Math.min(
+          discountAmount,
+          coupon.maximumDiscount || discountAmount,
+          grossPayable,
+        ),
+      );
+    }
+    const totalAmount =
+      grossPayable > 0 && isTestPromoCode(inputCode)
+        ? 1
+        : Math.max(0, roundMoney(grossPayable - discountAmount));
+    return {
+      room: dbRooms[0],
+      rooms: dbRooms,
+      roomsSnapshot,
+      dates,
+      coupon,
+      services,
+      policy,
+      pricing: {
+        basePrice,
+        roomMrp: totalRoomMrp,
+        roomDiscountAmount: totalRoomSavings,
+        effectiveRoomPrice: basePrice,
+        servicesPrice,
+        donationAmount,
+        extraGuestAmount,
+        mealAmount: services.meals.price,
+        upgradeAmount: 0,
+        discountAmount,
+        loyaltyDiscount: 0,
+        gstAmount,
+        gstPercent,
+        gstTaxableAmount: platformFee,
+        platformFee,
+        originalAmount,
+        finalAmount: totalAmount,
+        totalSavings: roundMoney(discountAmount + totalRoomSavings),
+        totalAmount,
+        amountPaid: 0,
+        currency: "INR",
+      },
+      paymentSummary: {
+        originalStayCost: basePrice,
+        roomMrp: totalRoomMrp,
+        roomDiscount: totalRoomSavings,
+        extraGuestAmount,
+        mealAmount: services.meals.price,
+        servicesPrice,
+        donationAmount,
+        couponDiscount: discountAmount,
+        gstAmount,
+        gstPercent,
+        gstTaxableAmount: platformFee,
+        gstNote: "GST is charged on the platform fee only.",
+        platformFee,
+        totalSavings: roundMoney(discountAmount + totalRoomSavings),
+        finalPayableAmount: totalAmount,
+      },
+    };
+  }
+}

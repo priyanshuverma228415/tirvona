@@ -1,0 +1,111 @@
+import { ForbiddenException, Injectable } from "@nestjs/common";
+import { InjectModel } from "../../../database/orm-nest";
+import type { Model } from "../../../database/orm";
+import {
+  PARKING_ASHRAM_OWNER_ROLE,
+  PARKING_CAPABILITIES,
+  PARKING_MODEL,
+  PARKING_ROLE_CAPABILITIES,
+} from "../domain/parking.constants";
+import { isAshramOwner } from "../../../common/auth/ashram-access";
+import { resolveAshramScope } from "../../../common/auth/ashram-scope";
+import type { AuthenticatedUser } from "../../../common/decorators/current-user.decorator";
+
+export interface ParkingAccess {
+  isPlatformAdmin: boolean;
+  roles: string[];
+  capabilities: string[];
+  partnerIds: string[];
+  locationIds: string[];
+  staffIds: string[];
+  ashramIds: string[];
+}
+
+@Injectable()
+export class ParkingAccessService {
+  constructor(
+    @InjectModel(PARKING_MODEL.Staff) private readonly staff: Model<any>,
+    @InjectModel(PARKING_MODEL.Location) private readonly locations: Model<any>,
+    @InjectModel("Ashram") private readonly ashrams: Model<any>,
+  ) {}
+
+  async resolve(user: AuthenticatedUser): Promise<ParkingAccess> {
+    if (user.role === "super_admin") {
+      return {
+        isPlatformAdmin: true,
+        roles: [],
+        capabilities: Object.values(PARKING_CAPABILITIES),
+        partnerIds: [],
+        locationIds: [],
+        staffIds: [],
+        ashramIds: [],
+      };
+    }
+    const grants = await this.staff
+      .find({ userId: user.id, status: "active" })
+      .lean();
+    const roles = grants.map((grant) => String(grant.parkingRole));
+    const partnerIds = [
+      ...new Set(grants.map((grant) => String(grant.partnerId))),
+    ];
+    const capabilities = new Set<string>();
+    const locationIds = new Set<string>();
+    let partnerWide = false;
+    for (const grant of grants) {
+      const roleCapabilities =
+        PARKING_ROLE_CAPABILITIES[String(grant.parkingRole)] ?? [];
+      const effective = grant.capabilityOverrides?.length
+        ? roleCapabilities.filter((capability) =>
+            grant.capabilityOverrides.includes(capability),
+          )
+        : roleCapabilities;
+      effective.forEach((capability) => capabilities.add(capability));
+      if (grant.locationIds?.length)
+        grant.locationIds.forEach((id: unknown) => locationIds.add(String(id)));
+      else partnerWide = true;
+    }
+    if (partnerWide && partnerIds.length) {
+      const owned = await this.locations
+        .find({ partnerId: { $in: partnerIds } })
+        .select("_id")
+        .lean();
+      owned.forEach((location) => locationIds.add(String(location._id)));
+    }
+
+    const ashramIds = isAshramOwner(user)
+      ? ((await resolveAshramScope(user, this.ashrams)) ?? [])
+      : [];
+    if (ashramIds.length) {
+      roles.push(PARKING_ASHRAM_OWNER_ROLE);
+      (PARKING_ROLE_CAPABILITIES[PARKING_ASHRAM_OWNER_ROLE] ?? []).forEach(
+        (capability) => capabilities.add(capability),
+      );
+      const atAshram = await this.locations
+        .find({ ashramId: { $in: ashramIds } })
+        .select("_id")
+        .lean();
+      atAshram.forEach((location) => locationIds.add(String(location._id)));
+    }
+
+    return {
+      isPlatformAdmin: false,
+      roles,
+      partnerIds,
+      capabilities: [...capabilities],
+      locationIds: [...locationIds],
+      staffIds: grants.map((grant) => String(grant._id)),
+      ashramIds,
+    };
+  }
+
+  assertLocation(access: ParkingAccess, locationId: string): void {
+    if (
+      !access.isPlatformAdmin &&
+      !access.locationIds.includes(String(locationId))
+    ) {
+      throw new ForbiddenException(
+        "You are not assigned to this parking location.",
+      );
+    }
+  }
+}

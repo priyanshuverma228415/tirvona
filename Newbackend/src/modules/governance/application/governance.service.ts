@@ -1,0 +1,1879 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { Types } from "../../../database/orm";
+import type { AuthenticatedUser } from "../../../common/decorators/current-user.decorator";
+import { escapeRegex } from "../../../common/utils/escape-regex";
+import { canManageAllAshrams } from "../../../common/auth/ashram-access";
+import { assignedAshramIds } from "../../../common/auth/ashram-scope";
+import {
+  AARTI_KINDS,
+  AARTI_SESSION_STATUSES,
+} from "../../aarti/domain/aarti.constants";
+import {
+  GOVERNANCE_REPOSITORY,
+  type GovernanceRepository,
+} from "../domain/governance.repository";
+import {
+  ADMIN_MODULE_KEYS,
+  ADMIN_REFS,
+} from "../infrastructure/persistence/governance.schemas";
+import type {
+  ApprovalRequestDto,
+  BulkNotificationDto,
+  InstitutionDto,
+  ResubmitRoomCategoryRequestDto,
+  RoomCategoryRequestDto,
+  UpdateInstitutionDto,
+} from "../presentation/dtos/governance.dto";
+
+@Injectable()
+export class GovernanceService {
+  private readonly adminAliases: Record<string, string> = {
+    pilgrims: "users",
+    owners: "users",
+    staff: "users",
+    institutions: "institution",
+    institution_contacts: "institution_contacts",
+    institution_locations: "institution_locations",
+    institution_audits: "institution_audits",
+    products: "marketplace",
+    vendors: "marketplace",
+    newsletter: "waitlist",
+    transport: "local",
+    restaurants: "local",
+    festivals: "events",
+    audit: "reports",
+    volunteer_jobs: "volunteer",
+    room_categories: "rooms",
+    service: "service_bookings",
+    services: "service_bookings",
+    planner: "circuits",
+    routes: "templates",
+    rituals: "templates",
+    featured_banners: "featured_banner",
+  };
+  private readonly adminCollections = new Set(ADMIN_MODULE_KEYS);
+  private static readonly ADMIN_LIST_PROJECTIONS: Record<string, string> = {
+    Admin_ashrams:
+      "name status isVerified rating slug ashramCode ownerId email phone contact.email contact.phone address.street address.city address.state address.district address.pincode images coverImageUrl gallery galleryUrls documents bookingPaused bookingPausedAt availabilityRequest dayStayConfig.enabled createdAt updatedAt",
+    Admin_rooms:
+      "name type acType capacity totalInventory basePrice status ashramId createdAt updatedAt",
+    Admin_room_inventory:
+      "ashramId roomId date totalInventory heldCount bookedCount maintenanceCount customPrice isClosed note createdAt updatedAt",
+    Admin_room_pricing:
+      "ashramId roomId name validFrom validUntil daysOfWeek multiplier overridePrice minStay taxPercent platformFeePercent priority isActive createdAt updatedAt",
+    Admin_users:
+      "name email phone role status isVerified district state employerAshramId createdAt updatedAt",
+    Admin_parking_partners:
+      "partnerCode businessName contactPerson contactEmail contactPhone status isVerified commissionPercent address.city address.state createdAt updatedAt",
+    Admin_parking_locations:
+      "name slug status isVerified isFeatured totalCapacity partnerId address.city address.state rating.average contactPhone images coverImage createdAt updatedAt",
+    Admin_parking_bookings:
+      "bookingReference status paymentStatus vehicleType vehicleNumber assignedSlotNumber entryAt exitAt durationHours pricing.totalAmount locationId partnerId customerId slotTypeId createdAt updatedAt",
+    Admin_parking_slot_types:
+      "name code locationId totalCapacity vehicleTypes isCovered hasEvCharging floorLabel isActive displayOrder createdAt updatedAt",
+    Admin_parking_slots:
+      "slotNumber locationId slotTypeId status floorLabel zone isActive occupiedAt createdAt updatedAt",
+    Admin_parking_staff:
+      "userId partnerId locationIds parkingRole employeeCode shift phone status lastActiveAt createdAt updatedAt",
+    Admin_parking_commissions:
+      "bookingId partnerId locationId grossAmount commissionPercent commissionAmount partnerEarning settlementStatus settledAt payoutBatchId createdAt updatedAt",
+    Admin_parking_transactions:
+      "reference type direction amount currency partnerId locationId bookingId description occurredAt createdAt",
+    Admin_parking_scan_logs:
+      "action result locationId bookingId vehicleNumber assignedSlotNumber scannedByUserId message scannedAt createdAt",
+    Admin_aarti_sessions:
+      "name slug kind deity status isFeatured startTime durationMinutes daysOfWeek totalCapacity ashramId ownerId venue.city venue.state rating.average coverImage images contactPhone approvedAt createdAt updatedAt",
+    Admin_aarti_pass_types:
+      "name code sessionId ashramId basePrice totalCapacity maxPerBooking zoneLabel includesPrasad includesSankalp isActive displayOrder createdAt updatedAt",
+    Admin_aarti_pricing:
+      "name sessionId passTypeId validFrom validUntil daysOfWeek multiplier overridePrice taxPercent priority isActive createdAt updatedAt",
+    Admin_aarti_availability:
+      "sessionId passTypeId date totalCapacity bookedCount blockedCount customPrice isClosed note createdAt updatedAt",
+    Admin_aarti_holidays:
+      "name type sessionId ashramId startDate endDate peakMultiplier isClosed isActive createdAt updatedAt",
+    Admin_aarti_staff:
+      "userId ashramId sessionIds aartiRole employeeCode shift phone status lastActiveAt createdAt updatedAt",
+    Admin_aarti_bookings:
+      "bookingReference status paymentStatus sessionId ashramId passTypeId customerId sessionDate startsAt passCount checkedInCount pricing.totalAmount pricing.donationAmount createdAt updatedAt",
+    Admin_aarti_payments:
+      "bookingId userId ashramId amount currency purpose method status transactionId paidAt createdAt",
+    Admin_aarti_transactions:
+      "reference type direction amount currency ashramId sessionId bookingId description occurredAt createdAt",
+    Admin_aarti_commissions:
+      "bookingId ashramId sessionId grossAmount commissionPercent commissionAmount ashramEarning settlementStatus settledAt payoutBatchId createdAt updatedAt",
+    Admin_aarti_scan_logs:
+      "action result sessionId ashramId bookingId bookingReference passCount scannedByUserId message scannedAt createdAt",
+    Admin_aarti_reviews:
+      "sessionId customerId bookingId rating.overall comment status moderatedBy createdAt updatedAt",
+    Admin_aarti_streams:
+      "title slug provider streamUrl embedUrl thumbnailUrl status isLive isFeatured ashramId ownerId sessionId city state startsAt endsAt viewCount displayOrder approvedAt createdAt updatedAt",
+    Admin_event_festivals:
+      "name slug eventType deity tagline status isFeatured startDate endDate startTime durationMinutes requiresRegistration dailyCapacity maxSeatsPerRegistration ashramId ownerId venue.city venue.state coverImage images contactPhone approvedAt createdAt updatedAt",
+    Admin_event_availability:
+      "eventId ashramId date totalCapacity bookedCount blockedCount isClosed note createdAt updatedAt",
+    Admin_event_registrations:
+      "registrationReference status eventId ashramId customerId attendDate startsAt seats checkedInCount checkedInAt contactName contactPhone createdAt updatedAt",
+    Admin_event_qr_codes:
+      "registrationId eventId customerId displayCode version status validFrom validUntil entryScannedAt scanCount createdAt",
+    Admin_event_scan_logs:
+      "action result eventId ashramId registrationId registrationReference seats scannedByUserId message scannedAt createdAt",
+    Admin_event_notifications:
+      "userId registrationId event title message channel status sentAt readAt createdAt",
+    Admin_event_staff:
+      "userId ashramId eventIds eventRole employeeCode shift phone status lastActiveAt createdAt updatedAt",
+    Admin_event_settings:
+      "scope ashramId eventId gateOpensBeforeMinutes maxSeatsPerRegistration registrationOpensDaysAhead registrationClosesBeforeMinutes allowRegistration allowCancellation requireAttendeeNames updatedBy updatedAt",
+    Admin_pilgrimage_circuits:
+      "name slug circuitType status isFeatured usableAsPlannerTemplate durationDays totalDistanceKm difficulty stopCount startCity endCity state region ashramId ownerId coverImage viewCount approvedAt createdAt updatedAt",
+    Admin_pilgrimage_stops:
+      "circuitId ashramId linkedAshramId dayNumber order name stopType templeSlug city state latitude longitude distanceFromPreviousKm travelMinutes suggestedDurationMinutes isOvernightStop createdAt updatedAt",
+    Admin_pilgrimage_itineraries:
+      "userId circuitId title startDate travellers pace status notes createdAt updatedAt",
+    Admin_pilgrimage_settings:
+      "scope ashramId circuitId maxDurationDays maxStopsPerCircuit defaultPaceStopsPerDay updatedBy updatedAt",
+  };
+  private readonly adminNeutralSubKeys = new Set([
+    "all",
+    "homepage",
+    "hero_slider",
+    "upload",
+    "approval",
+    "amenities",
+    "categories",
+    "facilities",
+    "availability",
+    "pricing",
+    "season_pricing",
+    "inventory",
+  ]);
+  private readonly adminStatusSubKeys: Record<string, string> = {
+    approved: "approved",
+    rejected: "rejected",
+    pending: "pending",
+    confirmed: "confirmed",
+    completed: "completed",
+    cancelled: "cancelled",
+    checked_in: "checked_in",
+    checked_out: "checked_out",
+    expired: "expired",
+    no_show: "no_show",
+    refunded: "refunded",
+    active: "active",
+    draft: "draft",
+    scheduled: "scheduled",
+    refunds: "pending",
+  };
+  constructor(
+    @Inject(GOVERNANCE_REPOSITORY)
+    private readonly repository: GovernanceRepository,
+  ) {}
+
+  async createApproval(
+    user: AuthenticatedUser,
+    dto: ApprovalRequestDto,
+  ): Promise<any> {
+    let ashramId = dto.ashramId;
+    if (ashramId && user.role !== "super_admin" && !canManageAllAshrams(user)) {
+      // A request may only target an ashram the caller owns or is assigned to.
+      const owned = await this.repository.one("GovernanceAshram", {
+        _id: ashramId,
+        ownerId: user.id,
+      });
+      if (!owned && !assignedAshramIds(user).includes(String(ashramId)))
+        throw new ForbiddenException(
+          "You can only submit requests for your own ashram.",
+        );
+    }
+    if (!ashramId)
+      ashramId = (
+        await this.repository.one("GovernanceAshram", { ownerId: user.id })
+      )?._id;
+    const requestId = `${
+      dto.module
+        .toUpperCase()
+        .replace(/[^A-Z]/g, "")
+        .slice(0, 4) || "APP"
+    }-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000 + 1000)}`;
+    const data = await this.repository.create("ApprovalRequest", {
+      ...dto,
+      requestId,
+      ashramId,
+      stayAdminId: user.id,
+      status: "pending",
+      priority: dto.priority ?? "normal",
+      history: [
+        {
+          status: "pending",
+          comment: `Submitted by ${user.name}.`,
+          updatedBy: user.id,
+          timestamp: new Date(),
+        },
+      ],
+    });
+    await this.notify(
+      undefined,
+      "super_admin",
+      `New ${dto.module.toUpperCase()} Approval Request`,
+      `Request "${dto.title}" (${requestId}) submitted for approval.`,
+    );
+    return {
+      success: true,
+      message:
+        "Approval request submitted successfully to Central Approval Center.",
+      data,
+    };
+  }
+  async createRoomCategory(
+    user: AuthenticatedUser,
+    payload: RoomCategoryRequestDto,
+  ): Promise<any> {
+    const requestedData = payload;
+    if (!requestedData.name)
+      throw new BadRequestException("Room category name is required");
+    return this.createApproval(user, {
+      module: "room_category",
+      entityType: "RoomCategory",
+      ashramId: payload.ashramId,
+      title: payload.title ?? `Room Category: ${requestedData.name}`,
+      requestedData: { ...requestedData },
+      priority: payload.priority ?? "normal",
+    });
+  }
+
+  async approvals(
+    user: AuthenticatedUser,
+    query: Record<string, string>,
+  ): Promise<any> {
+    const filter: Record<string, any> = {};
+    for (const key of ["module", "status", "priority"])
+      if (query[key] && query[key] !== "all") filter[key] = query[key];
+    if (user.role !== "super_admin") {
+      const ids = (
+        await this.repository.list(
+          "GovernanceAshram",
+          { ownerId: user.id },
+          { select: "_id", limit: 1000 },
+        )
+      ).map((row) => row._id);
+      filter.$or = [{ stayAdminId: user.id }, { ashramId: { $in: ids } }];
+    } else if (query.ashramId) filter.ashramId = query.ashramId;
+    if (query.search) {
+      const term = escapeRegex(query.search.slice(0, 100));
+      filter.$and = [
+        {
+          $or: ["requestId", "title", "module"].map((field) => ({
+            [field]: { $regex: term, $options: "i" },
+          })),
+        },
+      ];
+    }
+    const data = await this.repository.list("ApprovalRequest", filter, {
+      populate: ["ashramId", "stayAdminId", "reviewedBy"],
+      sort: { createdAt: -1 },
+      limit: 1000,
+    });
+    return { success: true, count: data.length, data };
+  }
+  /** Same visibility rule as approvals(): admins see everything, others only their own requests. */
+  private async approvalScope(
+    user: AuthenticatedUser,
+  ): Promise<Record<string, any>> {
+    if (user.role === "super_admin") return {};
+    const ids = (
+      await this.repository.list(
+        "GovernanceAshram",
+        { ownerId: user.id },
+        { select: "_id", limit: 1000 },
+      )
+    ).map((row) => row._id);
+    return { $or: [{ stayAdminId: user.id }, { ashramId: { $in: ids } }] };
+  }
+  /** Platform-wide telemetry is for platform staff; everyone else only sees their own. */
+  private canSeePlatformTelemetry(user: AuthenticatedUser): boolean {
+    return (
+      user.role === "super_admin" ||
+      user.role === "national_admin" ||
+      canManageAllAshrams(user)
+    );
+  }
+  async approvalStats(user: AuthenticatedUser): Promise<any> {
+    const scope = await this.approvalScope(user);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [
+      totalPending,
+      underReview,
+      needsChanges,
+      highPriority,
+      approvedToday,
+      rejectedToday,
+      totalCount,
+    ] = await Promise.all([
+      this.repository.count("ApprovalRequest", {
+        ...scope, status: "pending" }),
+      this.repository.count("ApprovalRequest", {
+        ...scope, status: "under_review" }),
+      this.repository.count("ApprovalRequest", {
+        ...scope, status: "needs_changes" }),
+      this.repository.count("ApprovalRequest", {
+        ...scope,
+        status: { $in: ["pending", "under_review"] },
+        priority: { $in: ["high", "urgent"] },
+      }),
+      this.repository.count("ApprovalRequest", {
+        ...scope,
+        status: "approved",
+        reviewedAt: { $gte: today },
+      }),
+      this.repository.count("ApprovalRequest", {
+        ...scope,
+        status: "rejected",
+        reviewedAt: { $gte: today },
+      }),
+      this.repository.count("ApprovalRequest", scope),
+    ]);
+    return {
+      success: true,
+      data: {
+        totalPending,
+        underReview,
+        needsChanges,
+        highPriority,
+        approvedToday,
+        rejectedToday,
+        totalCount,
+        avgApprovalTimeHours: 1.4,
+      },
+    };
+  }
+  async approval(user: AuthenticatedUser, id: string): Promise<any> {
+    const data = await this.repository.one(
+      "ApprovalRequest",
+      { _id: id },
+      {
+        populate: ["ashramId", "stayAdminId", "reviewedBy", "comments.userId"],
+      },
+    );
+    if (!data) throw new NotFoundException("Approval request not found.");
+    if (
+      user.role !== "super_admin" &&
+      String(data.stayAdminId?._id ?? data.stayAdminId) !== user.id &&
+      String(data.ashramId?.ownerId ?? "") !== user.id
+    )
+      throw new ForbiddenException("You cannot access this approval request");
+    return { success: true, data };
+  }
+  async reviewApproval(
+    user: AuthenticatedUser,
+    id: string,
+    action: string,
+    comment = "",
+  ): Promise<any> {
+    const request = await this.repository.one("ApprovalRequest", { _id: id });
+    if (!request) throw new NotFoundException("Approval request not found.");
+    const statuses: Record<string, string> = {
+      approve: "approved",
+      reject: "rejected",
+      request_changes: "needs_changes",
+      under_review: "under_review",
+    };
+    const status = statuses[action];
+    if (action === "approve") await this.executeApproval(request);
+    const data = await this.repository.update(
+      "ApprovalRequest",
+      { _id: id },
+      {
+        $set: {
+          status,
+          reviewComment:
+            comment || (action === "approve" ? "Approved by Super Admin." : ""),
+          reviewedBy: user.id,
+          reviewedAt: new Date(),
+        },
+        $push: {
+          history: {
+            status,
+            comment,
+            updatedBy: user.id,
+            timestamp: new Date(),
+          },
+        },
+      },
+    );
+    await this.notify(
+      request.stayAdminId,
+      undefined,
+      `Approval Request ${action.toUpperCase()}`,
+      `Your request "${request.title}" has been marked as ${status.replace("_", " ")}.`,
+    );
+    return {
+      success: true,
+      message: `Approval Request successfully updated to ${status.replace("_", " ")}.`,
+      data,
+    };
+  }
+  async commentApproval(
+    user: AuthenticatedUser,
+    id: string,
+    text: string,
+  ): Promise<any> {
+    await this.approval(user, id);
+    const data = await this.repository.update(
+      "ApprovalRequest",
+      { _id: id },
+      {
+        $push: {
+          comments: {
+            userId: user.id,
+            userName: user.name,
+            text: text.trim(),
+            timestamp: new Date(),
+          },
+        },
+      },
+    );
+    return {
+      success: true,
+      message: "Comment added to approval thread.",
+      data: data?.comments ?? [],
+    };
+  }
+  async resubmitApproval(
+    user: AuthenticatedUser,
+    id: string,
+    payload: ResubmitRoomCategoryRequestDto,
+  ): Promise<any> {
+    const current = await this.repository.one("ApprovalRequest", {
+      _id: id,
+      stayAdminId: user.id,
+    });
+    if (!current) throw new NotFoundException("Approval request not found.");
+    const data = await this.repository.update(
+      "ApprovalRequest",
+      { _id: id },
+      {
+        $set: {
+          requestedData: { ...payload },
+          status: "pending",
+          reviewComment: "",
+        },
+        $push: {
+          history: {
+            status: "pending",
+            comment: "Resubmitted",
+            updatedBy: user.id,
+            timestamp: new Date(),
+          },
+        },
+      },
+    );
+    return { success: true, message: "Approval request resubmitted.", data };
+  }
+
+  async institutions(query: Record<string, string>): Promise<any> {
+    const filter: Record<string, any> = {};
+    if (query.trustType) filter.trustType = query.trustType;
+    if (query.search) {
+      const term = escapeRegex(query.search.slice(0, 100));
+      filter.$or = ["legalName", "trustName", "registrationNo"].map(
+        (field) => ({ [field]: { $regex: term, $options: "i" } }),
+      );
+    }
+    if (query.district || query.state) {
+      const locations = await this.repository.list(
+        "InstitutionLocation",
+        {
+          ...(query.district ? { district: query.district } : {}),
+          ...(query.state ? { state: query.state } : {}),
+        },
+        { select: "institutionId", limit: 1000 },
+      );
+      filter._id = { $in: locations.map((row) => row.institutionId) };
+    }
+    const data = await this.repository.list("InstitutionMaster", filter, {
+      sort: { createdAt: -1 },
+      limit: 100,
+    });
+    return { success: true, count: data.length, data };
+  }
+  async institution(id: string): Promise<any> {
+    const master = await this.repository.one("InstitutionMaster", { _id: id });
+    if (!master)
+      throw new NotFoundException("Institution master profile not found");
+    const [contacts, location, qualityAudit] = await Promise.all([
+      this.repository.list("InstitutionContact", { institutionId: id }),
+      this.repository.one("InstitutionLocation", { institutionId: id }),
+      this.repository.one("InstitutionQualityAudit", { institutionId: id }),
+    ]);
+    return {
+      success: true,
+      data: { master, contacts, location, qualityAudit },
+    };
+  }
+  async createInstitution(
+    user: AuthenticatedUser,
+    dto: InstitutionDto,
+  ): Promise<any> {
+    const data = await this.repository.create("InstitutionMaster", {
+      ...dto,
+      trustName: dto.trustName ?? dto.legalName,
+      registrationNo: dto.registrationNo ?? `REG-${Date.now()}`,
+      trustType: dto.trustType ?? "Religious Trust",
+      establishedYear: dto.establishedYear ?? 1950,
+      status:
+        user.role === "super_admin" ? (dto.status ?? "verified") : "onboarding",
+      createdById: user.id,
+    });
+    if (dto.district || dto.state)
+      await this.repository.create("InstitutionLocation", {
+        institutionId: data._id,
+        district: dto.district ?? "Haridwar",
+        state: dto.state ?? "Uttarakhand",
+      });
+    if (dto.phone)
+      await this.repository.create("InstitutionContact", {
+        institutionId: data._id,
+        contactType: "Manager",
+        name: "Chief Administrator",
+        phone: dto.phone,
+        isPrimary: true,
+      });
+    return {
+      success: true,
+      message: "Institution master profile created successfully!",
+      data,
+    };
+  }
+  async updateInstitution(
+    user: AuthenticatedUser,
+    id: string,
+    dto: UpdateInstitutionDto,
+  ): Promise<any> {
+    const payload: Record<string, unknown> = { ...dto };
+    delete payload.district;
+    delete payload.state;
+    delete payload.phone;
+    if (user.role !== "super_admin") delete payload.status;
+    const data = await this.repository.update(
+      "InstitutionMaster",
+      { _id: id },
+      { $set: payload },
+    );
+    if (!data)
+      throw new NotFoundException("Institution master profile not found");
+    return {
+      success: true,
+      message: "Institution profile updated successfully",
+      data,
+    };
+  }
+  async deleteInstitution(id: string): Promise<any> {
+    if (!(await this.repository.remove("InstitutionMaster", { _id: id })))
+      throw new NotFoundException("Institution not found");
+    await Promise.all(
+      [
+        "InstitutionContact",
+        "InstitutionLocation",
+        "InstitutionQualityAudit",
+      ].map((name) => this.repository.removeMany(name, { institutionId: id })),
+    );
+    return {
+      success: true,
+      message: "Institution master deleted successfully",
+    };
+  }
+
+  async telemetryStats(user: AuthenticatedUser): Promise<any> {
+    const platform = this.canSeePlatformTelemetry(user);
+    const notificationScope: Record<string, any> = platform
+      ? {}
+      : {
+          $or: [
+            { recipientId: user.id },
+            { recipientRole: user.role },
+            { recipientRole: "all" },
+          ],
+        };
+    const logScope: Record<string, any> = platform ? {} : { userId: user.id };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [
+      todaysNotifications,
+      criticalAlerts,
+      unreadNotifications,
+      failedLogins,
+      failedPayments,
+      otpFailures,
+      serverErrors,
+      apiErrors,
+    ] = await Promise.all([
+      this.repository.count("EnterpriseNotification", {
+        ...notificationScope,
+        createdAt: { $gte: today },
+      }),
+      this.repository.count("EnterpriseNotification", {
+        ...notificationScope,
+        severity: { $in: ["critical", "security", "emergency"] },
+      }),
+      this.repository.count("EnterpriseNotification", {
+        ...notificationScope,
+        isRead: false,
+      }),
+      this.repository.count("ActivityLog", {
+        ...logScope, action: "FAILED_LOGIN" }),
+      this.repository.count("ActivityLog", {
+        ...logScope,
+        module: "PAYMENT",
+        action: "PAYMENT_FAILED",
+      }),
+      this.repository.count("ActivityLog", {
+        ...logScope, action: "OTP_FAILED" }),
+      this.repository.count("ActivityLog", {
+        ...logScope, severity: "emergency" }),
+      this.repository.count("ActivityLog", {
+        ...logScope, status: { $gte: 400 } }),
+    ]);
+    return {
+      success: true,
+      data: {
+        todaysNotifications,
+        criticalAlerts,
+        unreadNotifications,
+        failedLogins,
+        pendingComplaints: 0,
+        openTickets: 0,
+        failedPayments,
+        otpFailures,
+        serverErrors,
+        apiErrors,
+        emailsFailed: 0,
+        smsFailed: 0,
+      },
+    };
+  }
+  async activities(
+    user: AuthenticatedUser,
+    query: Record<string, string>,
+  ): Promise<any> {
+    const filter = this.telemetryFilter(query, [
+      "userName",
+      "userEmail",
+      "action",
+      "description",
+      "ipAddress",
+      "activityId",
+    ]);
+    if (this.canSeePlatformTelemetry(user)) {
+      // Platform staff keep the full log.
+    } else if (user.role === "district_officer") filter.city = user.district;
+    else filter.userId = user.id; // everyone else: only their own activity
+    return this.page("ActivityLog", filter, query, { timestamp: -1 });
+  }
+  async notifications(
+    user: AuthenticatedUser,
+    query: Record<string, string>,
+  ): Promise<any> {
+    const filter = this.telemetryFilter(query, ["title", "message", "module"]);
+    if (query.isRead && query.isRead !== "all")
+      filter.isRead = query.isRead === "true";
+    if (user.role !== "super_admin")
+      filter.$and = [
+        ...(filter.$and ?? []),
+        {
+          $or: [
+            { recipientId: user.id },
+            { recipientRole: user.role },
+            { recipientRole: "all" },
+          ],
+        },
+      ];
+    const result = await this.page("EnterpriseNotification", filter, query, {
+      createdAt: -1,
+    });
+    return {
+      ...result,
+      unreadCount: await this.repository.count("EnterpriseNotification", {
+        ...filter,
+        isRead: false,
+      }),
+    };
+  }
+  async markNotification(user: AuthenticatedUser, id: string): Promise<any> {
+    const filter = id === "all" ? { isRead: false } : { _id: id };
+    if (user.role !== "super_admin")
+      Object.assign(filter, {
+        $or: [
+          { recipientId: user.id },
+          { recipientRole: user.role },
+          { recipientRole: "all" },
+        ],
+      });
+    if (id === "all")
+      await this.repository.updateMany("EnterpriseNotification", filter, {
+        $set: { isRead: true, readAt: new Date() },
+      });
+    else if (
+      !(await this.repository.update("EnterpriseNotification", filter, {
+        $set: { isRead: true, readAt: new Date() },
+      }))
+    )
+      throw new NotFoundException("Notification not found");
+    return {
+      success: true,
+      message:
+        id === "all"
+          ? "All notifications marked as read"
+          : "Notification marked as read",
+    };
+  }
+  async deleteNotification(user: AuthenticatedUser, id: string): Promise<any> {
+    const filter: Record<string, any> = { _id: id };
+    if (user.role !== "super_admin") filter.recipientId = user.id;
+    if (!(await this.repository.remove("EnterpriseNotification", filter)))
+      throw new NotFoundException("Notification not found");
+    return { success: true, message: "Notification deleted" };
+  }
+  async bulkNotifications(
+    user: AuthenticatedUser,
+    dto: BulkNotificationDto,
+  ): Promise<any> {
+    const filter: Record<string, any> = { _id: { $in: dto.ids } };
+    if (user.role !== "super_admin") filter.recipientId = user.id;
+    if (dto.action === "delete")
+      await this.repository.removeMany("EnterpriseNotification", filter);
+    else
+      await this.repository.updateMany("EnterpriseNotification", filter, {
+        $set:
+          dto.action === "mark_read"
+            ? { isRead: true, readAt: new Date() }
+            : dto.action === "mark_unread"
+              ? { isRead: false }
+              : { isArchived: true },
+      });
+    return {
+      success: true,
+      message: `Bulk action '${dto.action}' completed successfully.`,
+    };
+  }
+  async seedTelemetry(): Promise<any> {
+    if ((await this.repository.count("ActivityLog")) === 0)
+      await this.repository.create("ActivityLog", {
+        activityId: `ACT_${Date.now()}`,
+        timestamp: new Date(),
+        module: "SYSTEM",
+        action: "TELEMETRY_INITIALIZED",
+        description: "Enterprise telemetry initialized",
+        severity: "info",
+        role: "system",
+      });
+    return { success: true, message: "Telemetry data checked/seeded." };
+  }
+
+  async adminList(
+    user: AuthenticatedUser,
+    moduleKey: string,
+    subKey: string | undefined,
+    query: Record<string, string>,
+  ): Promise<any> {
+    this.assertAdminModuleAccess(user, moduleKey, subKey, false);
+    const name = this.adminModel(moduleKey, subKey);
+    const filter: Record<string, any> = {};
+    this.applyAdminSubKeyFilter(moduleKey, subKey, filter);
+    if (query.status && query.status !== "all") filter.status = query.status;
+    if (query.search) {
+      const term = escapeRegex(query.search.slice(0, 100));
+      const searchFilter = [
+        "name",
+        "title",
+        "email",
+        "bookingId",
+        "promoCode",
+        "department",
+      ].map((field) => ({ [field]: { $regex: term, $options: "i" } }));
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: searchFilter }];
+        delete filter.$or;
+      } else {
+        filter.$or = searchFilter;
+      }
+    }
+    const refs = ADMIN_REFS[name.replace(/^Admin_/, "")] ?? {};
+    const populate = Object.entries(refs).map(([path, { select }]) => ({
+      path,
+      select,
+    }));
+    if (name === "Admin_room_pricing") {
+      const [savedRules, rooms] = await Promise.all([
+        this.repository.list(name, filter, {
+          sort: { createdAt: -1 },
+          limit: 100,
+          populate,
+          select: GovernanceService.ADMIN_LIST_PROJECTIONS[name],
+        }),
+        this.repository.list("Admin_rooms", {}, {
+          sort: { createdAt: -1 },
+          limit: 500,
+          populate: [{ path: "ashramId", select: "name ashramCode" }],
+          select:
+            "ashramId name basePrice status pricingRules createdAt updatedAt",
+        }),
+      ]);
+
+      const basePrices = rooms.map((room) => ({
+        _id: `base:${String(room._id)}`,
+        sourceRoomId: room._id,
+        ashramId: room.ashramId,
+        roomId: { _id: room._id, name: room.name },
+        name: "Base room price",
+        priceType: "Base price",
+        multiplier: 1,
+        overridePrice: Number(room.basePrice ?? 0),
+        minStay: 1,
+        isActive: room.status === "active",
+        status: room.status === "active" ? "active" : "inactive",
+        createdAt: room.createdAt,
+        updatedAt: room.updatedAt,
+      }));
+      const embeddedPrices = rooms.flatMap((room) =>
+        (Array.isArray(room.pricingRules) ? room.pricingRules : []).map(
+          (rule: any, index: number) => ({
+            _id: `embedded:${String(room._id)}:${String(rule._id ?? index)}`,
+            sourceRoomId: room._id,
+            ashramId: room.ashramId,
+            roomId: { _id: room._id, name: room.name },
+            name: rule.name || "Seasonal room price",
+            priceType: "Seasonal price",
+            validFrom: GovernanceService.toDateOnly(rule.startDate),
+            validUntil: GovernanceService.toDateOnly(rule.endDate),
+            multiplier: Number(rule.multiplier ?? 1),
+            overridePrice:
+              rule.overridePrice == null
+                ? Number(room.basePrice ?? 0) * Number(rule.multiplier ?? 1)
+                : Number(rule.overridePrice),
+            minStay: Number(rule.minStay ?? 1),
+            isActive: room.status === "active",
+            status: room.status === "active" ? "active" : "inactive",
+            createdAt: room.createdAt,
+            updatedAt: room.updatedAt,
+          }),
+        ),
+      );
+      const explicitPrices = savedRules.map((row) =>
+        this.redact({
+          ...row,
+          priceType: "Pricing override",
+          status: row.isActive === false ? "inactive" : "active",
+        }),
+      );
+      const data = [...explicitPrices, ...basePrices, ...embeddedPrices];
+      return { success: true, count: data.length, data };
+    }
+    const data = (
+      await this.repository.list(name, filter, {
+        sort: { createdAt: -1 },
+        limit: 100,
+        ...(populate.length ? { populate } : {}),
+        ...(GovernanceService.ADMIN_LIST_PROJECTIONS[name]
+          ? { select: GovernanceService.ADMIN_LIST_PROJECTIONS[name] }
+          : {}),
+      })
+    ).map((row) => this.redact(row));
+    return { success: true, count: data.length, data };
+  }
+  async adminSave(
+    user: AuthenticatedUser,
+    moduleKey: string,
+    subKey: string | undefined,
+    body: Record<string, unknown>,
+  ): Promise<any> {
+    this.assertAdminModuleAccess(user, moduleKey, subKey, true);
+    const name = this.adminModel(moduleKey, subKey);
+    if (
+      GovernanceService.ADMIN_STATUS_LOCKED.has(name) &&
+      ("status" in body || "isVerified" in body)
+    )
+      throw new BadRequestException(
+        "A booking's status changes through the payment, check-in, check-out, or cancellation workflow, not this console",
+      );
+    let payload = this.cleanAdminPayload(
+      body,
+      user.role === "super_admin",
+      name,
+    );
+    const id =
+      typeof body._id === "string" && Types.ObjectId.isValid(body._id)
+        ? body._id
+        : undefined;
+    if (name === "Admin_blogs") payload = this.normalizeBlogPayload(user, payload);
+    if (name === "Admin_aarti_sessions")
+      payload = await this.normalizeAdminAartiPayload(user, id, payload);
+
+    if (name === "Admin_room_pricing") {
+      const target = this.parseRoomPricingRowId(body._id);
+      if (target || body.sourceRoomId)
+        return this.saveRoomPricingRow(target, body, payload);
+    }
+
+    if (name === "Admin_room_inventory")
+      payload = await this.sanitizeRoomInventoryPayload(id, payload);
+
+    if (name === "Admin_parking_locations") {
+      const photos = new Set(
+        [
+          typeof payload.coverImage === "string"
+            ? payload.coverImage.trim()
+            : "",
+          ...(Array.isArray(payload.images)
+            ? payload.images.map((image) =>
+                typeof image === "string" ? image.trim() : "",
+              )
+            : []),
+        ].filter(Boolean),
+      );
+      if (photos.size < 3)
+        throw new BadRequestException(
+          "At least 3 unique parking photos are required. Map data does not count as a photo.",
+        );
+    }
+
+    let data;
+    if (name === "banners" || moduleKey === "banner") {
+      const sec = (payload.category || payload.section || subKey) as string;
+      const existing = id
+        ? await this.repository.one(name, { _id: id })
+        : sec
+          ? await this.repository.one(name, {
+              $or: [{ category: sec }, { section: sec }],
+            })
+          : null;
+
+      if (existing) {
+        data = await this.repository.update(
+          name,
+          { _id: existing._id },
+          { $set: { ...payload, category: sec, section: sec } },
+        );
+      } else {
+        data = await this.repository.create(
+          name,
+          await this.withCreationDefaults(user, name, {
+            ...payload,
+            category: sec,
+            section: sec,
+          }),
+        );
+      }
+    } else {
+      data = id
+        ? await this.repository.update(name, { _id: id }, { $set: payload })
+        : await this.repository.create(
+            name,
+            await this.withCreationDefaults(user, name, payload),
+          );
+    }
+    if (!data) throw new NotFoundException("Record not found");
+    return {
+      success: true,
+      message: id ? "Record saved successfully" : "Record created successfully",
+      data: this.redact(data),
+    };
+  }
+
+  private parseRoomPricingRowId(
+    value: unknown,
+  ): { kind: "base" | "embedded"; roomId: string; ruleId?: string } | null {
+    if (typeof value !== "string") return null;
+    const [kind, roomId, ruleId] = value.split(":");
+    if (kind === "base" && Types.ObjectId.isValid(roomId ?? ""))
+      return { kind: "base", roomId };
+    if (kind === "embedded" && Types.ObjectId.isValid(roomId ?? ""))
+      return { kind: "embedded", roomId, ruleId };
+    return null;
+  }
+
+  private static toOptionalDate(value: unknown): Date | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    const date = new Date(value as string);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  private static toDateOnly(value: unknown): string | undefined {
+    const date = GovernanceService.toOptionalDate(value);
+    return date ? date.toISOString().slice(0, 10) : undefined;
+  }
+
+  private async saveRoomPricingRow(
+    target: { kind: "base" | "embedded"; roomId: string; ruleId?: string } | null,
+    body: Record<string, unknown>,
+    payload: Record<string, unknown>,
+  ): Promise<any> {
+    const roomId =
+      target?.roomId ??
+      (typeof body.sourceRoomId === "string" ? body.sourceRoomId : "");
+    if (!Types.ObjectId.isValid(roomId))
+      throw new BadRequestException(
+        "This pricing row is not linked to a room category",
+      );
+    const room = await this.repository.one("Admin_rooms", { _id: roomId });
+    if (!room) throw new NotFoundException("Room category not found");
+
+    const price = Number(payload.overridePrice);
+    const multiplier = Number(payload.multiplier);
+
+    if (target?.kind === "base") {
+      if (!Number.isFinite(price) || price < 0)
+        throw new BadRequestException(
+          "A base room price must be zero or more",
+        );
+      const data = await this.repository.update(
+        "Admin_rooms",
+        { _id: roomId },
+        { $set: { basePrice: price } },
+      );
+      return {
+        success: true,
+        message: "Base room price updated successfully",
+        data: this.redact(data),
+      };
+    }
+
+    const rules = Array.isArray(room.pricingRules) ? [...room.pricingRules] : [];
+    const rule = {
+      name: String(payload.name ?? "").trim() || "Seasonal room price",
+      startDate: GovernanceService.toOptionalDate(payload.validFrom),
+      endDate: GovernanceService.toOptionalDate(payload.validUntil),
+      multiplier: Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1,
+      overridePrice: Number.isFinite(price) && price > 0 ? price : undefined,
+    };
+    if (
+      rule.startDate &&
+      rule.endDate &&
+      rule.startDate.getTime() > rule.endDate.getTime()
+    )
+      throw new BadRequestException(
+        "A seasonal price cannot end before it starts",
+      );
+
+    const index = target?.ruleId
+      ? rules.findIndex(
+          (entry: any, position: number) =>
+            String(entry?._id ?? position) === String(target.ruleId),
+        )
+      : -1;
+    if (target?.kind === "embedded" && index === -1)
+      throw new NotFoundException("Seasonal price rule not found");
+
+    if (index >= 0) rules[index] = { ...rules[index], ...rule };
+    else rules.push(rule);
+
+    const data = await this.repository.update(
+      "Admin_rooms",
+      { _id: roomId },
+      { $set: { pricingRules: rules } },
+    );
+    return {
+      success: true,
+      message:
+        index >= 0
+          ? "Seasonal price updated successfully"
+          : "Seasonal price created successfully",
+      data: this.redact(data),
+    };
+  }
+
+  private async sanitizeRoomInventoryPayload(
+    id: string | undefined,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const cleaned = { ...payload };
+    delete cleaned.bookedCount;
+    delete cleaned.heldCount;
+
+    if (cleaned.maintenanceCount === undefined) return cleaned;
+    const maintenance = Number(cleaned.maintenanceCount);
+    if (!Number.isFinite(maintenance) || maintenance < 0)
+      throw new BadRequestException(
+        "Blocked units must be zero or more",
+      );
+    cleaned.maintenanceCount = maintenance;
+
+    if (!id) return cleaned;
+    const row = await this.repository.one("Admin_room_inventory", { _id: id });
+    if (!row) return cleaned;
+    const committed =
+      Number(row.bookedCount ?? 0) + Number(row.heldCount ?? 0);
+    const capacity = Number(
+      cleaned.totalInventory ?? row.totalInventory ?? 0,
+    );
+    if (committed + maintenance > capacity)
+      throw new BadRequestException(
+        `Only ${Math.max(0, capacity - committed)} unit(s) can be blocked on this date; the rest are already booked or held.`,
+      );
+    return cleaned;
+  }
+
+  private normalizeBlogPayload(
+    user: AuthenticatedUser,
+    input: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const payload = { ...input };
+    const text = (value: unknown): string =>
+      typeof value === "string" ? value.trim() : "";
+
+    const title = text(payload.title) || text(payload.name);
+    if (!title)
+      throw new BadRequestException("A blog post needs a title to be saved");
+    payload.title = title;
+    payload.name = title;
+    // Public byline; empty falls back to the linked author or "Tirvona Editorial".
+    if ("authorName" in payload) payload.authorName = text(payload.authorName);
+
+    if (!text(payload.slug))
+      payload.slug = `${
+        title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "")
+          .slice(0, 60) || "post"
+      }-${randomUUID().replace(/-/g, "").slice(0, 6)}`;
+
+    const status = text(payload.status).toLowerCase();
+    payload.status = ["active", "approved", "publish", "published", "live"]
+      .includes(status)
+      ? "published"
+      : status || "draft";
+
+    const body =
+      text(payload.content) || text(payload.details) || text(payload.body);
+    if (body) payload.content = body;
+    if (!text(payload.excerpt))
+      payload.excerpt = (
+        text(payload.details) ||
+        text(payload.description) ||
+        body
+      ).slice(0, 200);
+
+    const cover =
+      text(payload.coverImage) || text(payload.image) || text(payload.imageUrl);
+    if (cover) payload.coverImage = cover;
+
+    if (!text(payload.contentType))
+      payload.contentType = text(payload.videoUrl) ? "video" : "article";
+    if (!text(payload.category)) payload.category = "spiritual";
+
+    const existing = (payload.author ?? {}) as Record<string, unknown>;
+    if (!text(existing.name))
+      payload.author = {
+        ...existing,
+        name: user.name || "Tirvona Editorial",
+        photo: text(existing.photo) || cover || "",
+      };
+
+    if (payload.status === "published" && !payload.publishedAt)
+      payload.publishedAt = new Date();
+    payload.views = Number(payload.views ?? 0) || 0;
+    return payload;
+  }
+
+  private async withCreationDefaults(
+    user: AuthenticatedUser,
+    model: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (model === "Admin_ashrams") {
+      const suffix = randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+      const name = String(payload.name ?? "").trim();
+      if (!name)
+        throw new BadRequestException("An ashram needs a name to be created");
+      return {
+        ...payload,
+        name,
+        ownerId: payload.ownerId ?? user.id,
+        createdBy: user.id,
+        description:
+          String(payload.description ?? "").trim() ||
+          "Spiritual Ashram lodging & accommodation.",
+        ashramCode: payload.ashramCode ?? `ASH-${suffix}`,
+        slug:
+          payload.slug ??
+          `${
+            name
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/(^-|-$)/g, "") || "ashram"
+          }-${suffix.toLowerCase()}`,
+        status: payload.status ?? "pending_docs",
+      };
+    }
+    if (model === "Admin_rooms") {
+      if (!payload.ashramId)
+        throw new BadRequestException(
+          "A room category must be linked to an ashram",
+        );
+      return {
+        ...payload,
+        type: payload.type ?? "private_room",
+        acType: payload.acType ?? "Non-AC",
+        capacity: Number(payload.capacity ?? 1),
+        totalInventory: Number(payload.totalInventory ?? 1),
+        basePrice: Number(payload.basePrice ?? 0),
+        status: payload.status ?? "active",
+      };
+    }
+    return payload;
+  }
+
+  private async normalizeAdminAartiPayload(
+    user: AuthenticatedUser,
+    id: string | undefined,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const text = (value: unknown): string =>
+      typeof value === "string" ? value.trim() : "";
+    const populatedId = (value: unknown): string => {
+      if (typeof value === "string") return value;
+      if (value && typeof value === "object" && "_id" in value)
+        return String((value as { _id: unknown })._id ?? "");
+      return "";
+    };
+
+    const current = id
+      ? await this.repository.one("Admin_aarti_sessions", { _id: id })
+      : null;
+    const ashramId = populatedId(input.ashramId) || populatedId(current?.ashramId);
+    if (!Types.ObjectId.isValid(ashramId))
+      throw new BadRequestException("Select a valid ashram for this Aarti");
+
+    const ashram = await this.repository.one("Admin_ashrams", { _id: ashramId });
+    if (!ashram) throw new BadRequestException("The selected ashram was not found");
+    const ownerId = populatedId(ashram.ownerId);
+    if (!Types.ObjectId.isValid(ownerId))
+      throw new BadRequestException(
+        "The selected ashram must have a valid owner before an Aarti can be added",
+      );
+
+    const existingVenue =
+      input.venue && typeof input.venue === "object"
+        ? (input.venue as Record<string, unknown>)
+        : {};
+    const city = text(input.city) || text(existingVenue.city) || text(current?.venue?.city);
+    const state =
+      text(input.state) || text(existingVenue.state) || text(current?.venue?.state);
+    if (!state || !city)
+      throw new BadRequestException("Select both state and city for this Aarti");
+
+    const name = text(input.name) || text(current?.name);
+    if (!name) throw new BadRequestException("An Aarti name is required");
+    const kind = text(input.kind) || text(input.category) || text(current?.kind) || "other";
+    if (!(AARTI_KINDS as readonly string[]).includes(kind))
+      throw new BadRequestException("Select a valid Aarti category");
+    const status = text(input.status) || text(current?.status) || "draft";
+    if (!(AARTI_SESSION_STATUSES as readonly string[]).includes(status))
+      throw new BadRequestException("Select a valid Aarti status");
+
+    const startTime = text(input.startTime) || text(current?.startTime);
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(startTime))
+      throw new BadRequestException("Aarti start time must use HH:MM format");
+    const durationMinutes = Number(input.durationMinutes ?? current?.durationMinutes ?? 45);
+    if (!Number.isFinite(durationMinutes) || durationMinutes < 5 || durationMinutes > 720)
+      throw new BadRequestException("Aarti duration must be between 5 and 720 minutes");
+    const totalCapacity = Number(input.totalCapacity ?? current?.totalCapacity ?? 0);
+    if (!Number.isFinite(totalCapacity) || totalCapacity < 0)
+      throw new BadRequestException("Aarti capacity cannot be negative");
+
+    const address =
+      ashram.address && typeof ashram.address === "object" ? ashram.address : {};
+    const payload: Record<string, unknown> = {
+      ...input,
+      ashramId,
+      ownerId,
+      name,
+      kind,
+      status,
+      description: text(input.description) || text(input.details) || text(current?.description),
+      startTime,
+      durationMinutes,
+      totalCapacity,
+      daysOfWeek: Array.isArray(input.daysOfWeek)
+        ? input.daysOfWeek
+        : Array.isArray(current?.daysOfWeek) && current.daysOfWeek.length
+          ? current.daysOfWeek
+          : [0, 1, 2, 3, 4, 5, 6],
+      timezone: text(input.timezone) || text(current?.timezone) || "Asia/Kolkata",
+      venue: {
+        ...address,
+        ...existingVenue,
+        name: text(existingVenue.name) || text(ashram.name),
+        state,
+        city,
+        district: text(existingVenue.district) || city,
+      },
+    };
+
+    if (!id) {
+      const base = `${name}-${city}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "") || "aarti";
+      payload.slug = `${base}-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+      payload.createdBy = user.id;
+    } else {
+      delete payload.slug;
+    }
+
+    [
+      "category",
+      "title",
+      "details",
+      "state",
+      "city",
+      "address",
+      "image",
+      "imageUrl",
+      "gallery",
+      "isVerified",
+    ].forEach((key) => delete payload[key]);
+    return payload;
+  }
+  async adminDelete(
+    user: AuthenticatedUser,
+    moduleKey: string,
+    id: string,
+    subKey?: string,
+  ): Promise<any> {
+    this.assertAdminModuleAccess(user, moduleKey, subKey, true);
+    const name = this.adminModel(moduleKey, subKey);
+
+    if (name === "Admin_room_pricing") {
+      const target = this.parseRoomPricingRowId(id);
+      if (target?.kind === "base")
+        throw new BadRequestException(
+          "A room's base price cannot be removed — edit it, or delete the room category itself",
+        );
+      if (target?.kind === "embedded") {
+        const room = await this.repository.one("Admin_rooms", {
+          _id: target.roomId,
+        });
+        if (!room) throw new NotFoundException("Room category not found");
+        const rules = Array.isArray(room.pricingRules) ? room.pricingRules : [];
+        const remaining = rules.filter(
+          (entry: any, position: number) =>
+            String(entry?._id ?? position) !== String(target.ruleId),
+        );
+        if (remaining.length === rules.length)
+          throw new NotFoundException("Seasonal price rule not found");
+        await this.repository.update(
+          "Admin_rooms",
+          { _id: target.roomId },
+          { $set: { pricingRules: remaining } },
+        );
+        return { success: true, message: "Seasonal price removed" };
+      }
+    }
+
+    if (name === "Admin_users" && user.role !== "super_admin")
+      throw new ForbiddenException(
+        "Only a Super Admin can delete user accounts",
+      );
+    if (!Types.ObjectId.isValid(id))
+      throw new BadRequestException("Invalid record id");
+    const removed = await this.repository.remove(name, { _id: id });
+    if (!removed) throw new NotFoundException("Record not found");
+    if (name === "banners" || moduleKey === "banner") {
+      const sec = removed.category || removed.section;
+      if (sec) {
+        await Promise.all([
+          this.repository.removeMany("requests", { section: sec }),
+          this.repository.removeMany("banners", {
+            $or: [{ category: sec }, { section: sec }],
+          }),
+        ]);
+      }
+    }
+    return { success: true, message: "Record deleted successfully" };
+  }
+
+  private async executeApproval(request: any): Promise<void> {
+    const data = request.requestedData ?? {};
+    if (["room_category", "room"].includes(request.module))
+      await this.repository.create("GovernanceRoom", {
+        ashramId: request.ashramId,
+        name: data.name ?? "New Custom Room Category",
+        type: String(data.name ?? "")
+          .toLowerCase()
+          .includes("dorm")
+          ? "dormitory"
+          : "private_room",
+        capacity: data.maxGuests ?? 2,
+        totalInventory: 5,
+        basePrice: data.suggestedBasePrice ?? 500,
+        amenities: data.defaultAmenities ?? [],
+        images: data.images ?? [],
+        status: "active",
+      });
+    else if (request.module === "pricing" && data.basePrice)
+      await this.repository.update(
+        "GovernanceAshram",
+        { _id: request.ashramId },
+        { $set: { "pricing.basePrice": data.basePrice } },
+      );
+    else if (request.module === "offer") {
+      const maximumRedemptions = Number(data.maximumRedemptions) || 100;
+      const discountType =
+        data.discountType === "Flat Amount" || data.discountType === "flat"
+          ? "Flat Amount"
+          : "Percentage";
+      const title = data.title ?? request.title ?? "Approved offer";
+      await this.repository.create("GovernanceOffer", {
+        ashramId: request.ashramId,
+        ownerId: request.stayAdminId,
+        offerTitle: title,
+        description: data.description ?? title,
+        offerType: data.offerType ?? "SPECIAL OFFER",
+        promoCode: String(
+          data.promoCode ?? `SPECIAL-${Date.now().toString().slice(-4)}`,
+        ).toUpperCase(),
+        discountType,
+        discountValue: Number(data.discountValue) || 10,
+        validFrom: new Date(),
+        validTill: data.validTill
+          ? new Date(data.validTill)
+          : new Date(Date.now() + 90 * 86_400_000),
+        maximumRedemptions,
+        remainingRedemptions: maximumRedemptions,
+        perUserLimit: 1,
+        featured: false,
+        viewsCount: 0,
+        clicksCount: 0,
+        redemptionsCount: 0,
+        revenueGenerated: 0,
+        deletedAt: null,
+        status: "active",
+      });
+    }
+  }
+  private async notify(
+    recipientId: unknown,
+    recipientRole: string | undefined,
+    title: string,
+    message: string,
+  ): Promise<void> {
+    await this.repository.create("EnterpriseNotification", {
+      recipientId,
+      recipientRole,
+      type: "in_app",
+      title,
+      message,
+      module: "approvals",
+      severity: "info",
+      isRead: false,
+    });
+  }
+  private telemetryFilter(
+    query: Record<string, string>,
+    fields: string[],
+  ): Record<string, any> {
+    const filter: Record<string, any> = {};
+    for (const key of ["module", "severity", "role", "type"])
+      if (query[key] && query[key] !== "all")
+        filter[key] = key === "module" ? query[key].toUpperCase() : query[key];
+    if (query.search) {
+      const term = escapeRegex(query.search.slice(0, 100));
+      filter.$or = fields.map((field) => ({
+        [field]: { $regex: term, $options: "i" },
+      }));
+    }
+    return filter;
+  }
+  private async page(
+    model: string,
+    filter: Record<string, unknown>,
+    query: Record<string, string>,
+    sort: Record<string, -1>,
+  ): Promise<any> {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
+    const [data, total] = await Promise.all([
+      this.repository.list(model, filter, {
+        sort,
+        skip: (page - 1) * limit,
+        limit,
+      }),
+      this.repository.count(model, filter),
+    ]);
+    return {
+      success: true,
+      count: data.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit) || 1,
+      data,
+    };
+  }
+  private normalizeAdminKey(value?: string): string | undefined {
+    return value?.trim().replace(/-/g, "_");
+  }
+
+  private adminLogicalKey(moduleKey: string, subKey?: string): string {
+    const moduleName = this.normalizeAdminKey(moduleKey) ?? moduleKey;
+    const section = this.normalizeAdminKey(subKey);
+    const moduleLogical = this.adminAliases[moduleName] ?? moduleName;
+    if (moduleName === "local") return "local";
+    if (moduleName === "banner") return "banner";
+    if (moduleName === "featured_banner") return "featured_banner";
+    if (moduleName === "ashrams" && section === "room_categories")
+      return "rooms";
+    if (moduleName === "rooms") {
+      if (section === "availability" || section === "inventory")
+        return "room_inventory";
+      if (section === "pricing" || section === "season_pricing")
+        return "room_pricing";
+    }
+    if (moduleName === "marketplace" && section === "categories")
+      return "categories";
+    if (
+      !section ||
+      this.adminNeutralSubKeys.has(section) ||
+      this.adminStatusSubKeys[section]
+    )
+      return moduleLogical;
+    const sectionLogical = this.adminAliases[section] ?? section;
+    return this.adminCollections.has(sectionLogical)
+      ? sectionLogical
+      : moduleLogical;
+  }
+
+  private applyAdminSubKeyFilter(
+    moduleKey: string,
+    subKey: string | undefined,
+    filter: Record<string, any>,
+  ): void {
+    const moduleName = this.normalizeAdminKey(moduleKey) ?? moduleKey;
+    const section = this.normalizeAdminKey(subKey);
+    if (!section || section === "all") return;
+    if (moduleName === "planner" && ["routes", "rituals"].includes(section)) {
+      filter.$or = [
+        { type: section },
+        { category: section },
+        { templateType: section },
+      ];
+      return;
+    }
+    if (
+      this.adminLogicalKey(moduleKey, subKey) !==
+      (this.adminAliases[moduleName] ?? moduleName)
+    )
+      return;
+
+    if (moduleName === "local") {
+      filter.category = section === "restaurants" ? "food" : section;
+      return;
+    }
+
+    if (moduleName === "users") {
+      if (section === "pilgrims") filter.role = "customer";
+      else if (section === "owners")
+        filter.role = { $in: ["ashram_owner", "owner"] };
+      else if (section === "staff")
+        filter.role = {
+          $in: ["manager", "reception", "housekeeping", "staff"],
+        };
+      else if (section === "content_managers") filter.role = "content_manager";
+      else if (section === "roles") filter.role = { $ne: "customer" };
+      return;
+    }
+
+    if (moduleName === "blogs" && section === "categories") {
+      filter.category = { $exists: true, $nin: [null, ""] };
+      return;
+    }
+
+    if (moduleName === "marketplace" && section === "vendors") {
+      filter.$or = [
+        { vendor: { $exists: true, $ne: null } },
+        { vendorId: { $exists: true, $ne: null } },
+      ];
+      return;
+    }
+
+    if (moduleName === "institution" && section === "trusts") {
+      filter.trustType = { $exists: true, $ne: "" };
+      return;
+    }
+
+    if (moduleName === "reports") {
+      filter.reportType = { $regex: escapeRegex(section), $options: "i" };
+      return;
+    }
+
+    if (moduleName === "banner" && !this.adminStatusSubKeys[section]) {
+      const bannerCategories = [
+        "homepage",
+        "hero_banner",
+        "festival_banner",
+        "offer_banner",
+        "announcement",
+        "destinations_banner",
+        "parking_banner",
+        "marketplace_banner",
+      ];
+      if (section === "homepage") {
+        filter.$or = [
+          { category: { $in: bannerCategories } },
+          { section: { $in: bannerCategories } },
+        ];
+      } else {
+        filter.$or = [{ category: section }, { section: section }];
+      }
+      return;
+    }
+
+    if (moduleName === "offers" && section === "featured") {
+      filter.featured = true;
+      return;
+    }
+
+    if (moduleName.startsWith("parking_")) {
+      if (moduleName === "parking_commissions") {
+        if (GovernanceService.PARKING_SETTLEMENT_STATUSES.has(section))
+          filter.settlementStatus = section;
+        return;
+      }
+      if (moduleName === "parking_transactions") {
+        if (GovernanceService.PARKING_TRANSACTION_TYPES.has(section))
+          filter.type = section;
+        return;
+      }
+      if (moduleName === "parking_scan_logs") {
+        if (["entry", "exit", "verify"].includes(section))
+          filter.action = section;
+        else if (section === "failed") filter.result = { $ne: "success" };
+        return;
+      }
+      if (moduleName === "parking_staff") {
+        if (GovernanceService.PARKING_STAFF_ROLES.has(section))
+          filter.parkingRole = section;
+        else if (["active", "inactive", "suspended"].includes(section))
+          filter.status = section;
+        return;
+      }
+      if (moduleName === "parking_slots" && section === "occupied") {
+        filter.status = "occupied";
+        return;
+      }
+      if (section === "featured") {
+        filter.isFeatured = true;
+        return;
+      }
+      if (section === "unverified") {
+        filter.isVerified = false;
+        return;
+      }
+      filter.status = section;
+      return;
+    }
+
+    const status = this.adminStatusSubKeys[section];
+    if (status) filter.status = status;
+  }
+  private adminModel(moduleKey: string, subKey?: string): string {
+    const key = this.adminLogicalKey(moduleKey, subKey);
+    if (
+      [
+        "institution",
+        "institution_contacts",
+        "institution_locations",
+        "institution_audits",
+      ].includes(key)
+    )
+      return key === "institution"
+        ? "InstitutionMaster"
+        : key === "institution_contacts"
+          ? "InstitutionContact"
+          : key === "institution_locations"
+            ? "InstitutionLocation"
+            : "InstitutionQualityAudit";
+    if (!this.adminCollections.has(key))
+      throw new BadRequestException("Unsupported administration module");
+    return `Admin_${key}`;
+  }
+
+  private assertAdminModuleAccess(
+    user: AuthenticatedUser,
+    moduleKey: string,
+    subKey: string | undefined,
+    write: boolean,
+  ): void {
+    if (user.role === "super_admin") return;
+
+    const key = this.adminLogicalKey(moduleKey, subKey);
+    const roleModules: Record<string, string[]> = {
+      content_manager: [
+        "banner",
+        "blogs",
+        "authors",
+        "comments",
+        "circuits",
+        "events",
+      ],
+      offer_manager: ["offers"],
+      blog_manager: ["blogs", "authors", "comments"],
+      local_manager: ["local", "guides", "events"],
+      marketplace_manager: ["marketplace", "categories", "waitlist"],
+      finance_manager: ["payments", "reports", "bookings"],
+      support: ["support", "bookings", "reviews"],
+      service_manager: ["providers", "service_bookings", "local"],
+    };
+    const logicalKey = moduleKey === "local" ? "local" : key;
+    if (!roleModules[user.role]?.includes(logicalKey))
+      throw new ForbiddenException(
+        "This role cannot access that administration module",
+      );
+
+    const readOnlyRoles = new Set([
+      "national_admin",
+      "state_admin",
+      "government_admin",
+      "govt_admin",
+      "district_officer",
+      "inspector",
+      "finance_manager",
+      "support",
+    ]);
+    if (write && readOnlyRoles.has(user.role))
+      throw new ForbiddenException(
+        "This role has read-only access to that module",
+      );
+  }
+  private static readonly ADMIN_STATUS_LOCKED = new Set([
+    "Admin_bookings",
+    "Admin_parking_bookings",
+    "Admin_parking_partners",
+    "Admin_parking_commissions",
+    "Admin_parking_transactions",
+    "Admin_aarti_bookings",
+    "Admin_aarti_commissions",
+    "Admin_aarti_transactions",
+    "Admin_aarti_payments",
+    "Admin_event_registrations",
+  ]);
+  private static readonly PARKING_SETTLEMENT_STATUSES = new Set([
+    "pending",
+    "processing",
+    "settled",
+    "on_hold",
+    "reversed",
+  ]);
+  private static readonly PARKING_TRANSACTION_TYPES = new Set([
+    "booking",
+    "overstay",
+    "refund",
+    "commission",
+    "payout",
+  ]);
+  private static readonly PARKING_STAFF_ROLES = new Set([
+    "parking_partner",
+    "parking_manager",
+    "security_guard",
+  ]);
+  private static readonly ASHRAM_STATUS_ALIASES: Record<string, string> = {
+    active: "approved",
+    inactive: "suspended",
+    verified: "approved",
+    approved: "approved",
+    rejected: "rejected",
+    suspended: "suspended",
+    archived: "suspended",
+    pending: "pending_docs",
+    pending_docs: "pending_docs",
+    pending_inspection: "pending_inspection",
+  };
+
+  private cleanAdminPayload(
+    input: Record<string, unknown>,
+    superAdmin: boolean,
+    model: string,
+  ): Record<string, unknown> {
+    const blocked = new Set([
+      "_id",
+      "__v",
+      "createdAt",
+      "updatedAt",
+      "password",
+      "passwordHash",
+      "tokenVersion",
+      "resetTokenHash",
+      "googleId",
+      "deviceSessions",
+      "__proto__",
+      "constructor",
+      "prototype",
+    ]);
+    if (!superAdmin || model !== "Admin_users")
+      ["role", "permissions"].forEach((key) => blocked.add(key));
+    if (GovernanceService.ADMIN_STATUS_LOCKED.has(model))
+      ["status", "isVerified"].forEach((key) => blocked.add(key));
+
+    const payload = Object.fromEntries(
+      Object.entries(input).filter(([key]) => !blocked.has(key)),
+    );
+
+    if (model === "Admin_ashrams") {
+      // Managed only through /day-stay/vendor/config; the list projection
+      // carries a partial copy that must not overwrite the full settings.
+      delete payload.dayStayConfig;
+      if (typeof input.isVerified === "boolean") {
+        payload.isVerified = input.isVerified;
+      } else if (typeof input.isVerified === "string") {
+        const lower = (input.isVerified as string).toLowerCase();
+        payload.isVerified = lower === "true" || lower === "verified" || lower === "yes";
+      }
+
+      if (typeof payload.status === "string") {
+        const requested = payload.status.trim().toLowerCase();
+        if (!requested) {
+          delete payload.status;
+          return payload;
+        }
+        const mapped = GovernanceService.ASHRAM_STATUS_ALIASES[requested];
+        if (!mapped)
+          throw new BadRequestException(
+            "An ashram can only be set to approved, rejected, suspended, pending_docs, or pending_inspection",
+          );
+        payload.status = mapped;
+        if (mapped === "approved" && payload.isVerified === undefined) {
+          payload.isVerified = true;
+        }
+      }
+    }
+    return payload;
+  }
+  private redact<T>(value: T): T {
+    if (!value || typeof value !== "object") return value;
+    if (value instanceof Date || value instanceof Types.ObjectId) return value;
+    if (Buffer.isBuffer(value)) return value;
+    const hidden = new Set([
+      "password",
+      "passwordHash",
+      "tokenVersion",
+      "resetTokenHash",
+      "resetTokenExpiresAt",
+      "googleId",
+      "deviceSessions",
+      "aadhaarId",
+      "govtId",
+    ]);
+    const copy: any = Array.isArray(value) ? [] : {};
+    for (const [key, item] of Object.entries(value as any))
+      if (!hidden.has(key))
+        copy[key] = item && typeof item === "object" ? this.redact(item) : item;
+    return copy;
+  }
+}

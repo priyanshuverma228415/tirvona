@@ -1,0 +1,136 @@
+import { Module } from "@nestjs/common";
+import { OrmModule } from "../../database/orm-nest";
+import { AshramsModule } from "../ashrams/ashrams.module";
+import { UsersModule } from "../users/users.module";
+import { PlatformSettingsModule } from "../platform-settings/platform-settings.module";
+import { WalletModule } from "../wallet/wallet.module";
+import { PartnersModule } from "../partners/partners.module";
+import { BookingPricingService } from "./application/booking-pricing.service";
+import { BookingsService } from "./application/bookings.service";
+import { SelfBookingService } from "./application/self-booking.service";
+import { SelfBookingController } from "./presentation/self-booking.controller";
+import { QrService } from "../smart-contact/application/qr.service";
+import { OffersService } from "./application/offers.service";
+import { BookingPaymentLinkService } from "./application/booking-payment-link.service";
+import { PublicBookingPaymentController } from "./presentation/public-booking-payment.controller";
+import { ReviewsService } from "./application/reviews.service";
+import { BookingMaintenanceService } from "./application/booking-maintenance.service";
+import { BookingCheckinReminderService } from "./application/booking-checkin-reminder.service";
+import { BookingFinanceService } from "./application/booking-finance.service";
+import { BookingIdentityService } from "./application/booking-identity.service";
+import { BookingFinanceController } from "./presentation/booking-finance.controller";
+import { BookingIdentityController } from "./presentation/booking-identity.controller";
+import {
+  BookingIdentityCounterSchema,
+  BookingIdentityPropertySchema,
+} from "./infrastructure/persistence/booking-identity.schemas";
+import { BOOKING_REPOSITORY } from "./domain/booking.repository";
+import {
+  BookingCommissionSchema,
+  BookingInvoiceSchema,
+  BookingLedgerSchema,
+  BookingPaymentEventSchema,
+  BookingPaymentSchema,
+  BookingReceiptSchema,
+  BookingRefundSchema,
+  BookingSettlementSchema,
+  BookingTaxRecordSchema,
+  BookingTransactionSchema,
+} from "./infrastructure/persistence/booking-finance.schemas";
+import {
+  BookingCheckinSchema,
+  BookingCheckoutSchema,
+  BookingGuestDetailSchema,
+  BookingInventoryHoldSchema,
+  BookingRoomAssignmentSchema,
+  BookingSchema,
+  BookingStatusHistorySchema,
+} from "./infrastructure/persistence/booking.schemas";
+import {
+  BookingAuditLogSchema,
+  BookingCouponSchema,
+  BookingHolidaySchema,
+  BookingNotificationSchema,
+  BookingOfferRedemptionSchema,
+  BookingPolicySchema,
+  BookingReportSchema,
+  BookingReviewSchema,
+} from "./infrastructure/persistence/booking-support.schemas";
+import { PgBookingRepository } from "./infrastructure/persistence/pg-booking.repository";
+import { BookingsController } from "./presentation/bookings.controller";
+import { OffersController } from "./presentation/offers.controller";
+import { ReviewsController } from "./presentation/reviews.controller";
+
+const models = [
+  ["Booking", BookingSchema],
+  ["BookingStatusHistory", BookingStatusHistorySchema],
+  ["BookingGuestDetail", BookingGuestDetailSchema],
+  ["BookingRoomAssignment", BookingRoomAssignmentSchema],
+  ["BookingCheckin", BookingCheckinSchema],
+  ["BookingCheckout", BookingCheckoutSchema],
+  ["BookingInventoryHold", BookingInventoryHoldSchema],
+  ["BookingPayment", BookingPaymentSchema],
+  ["BookingPaymentEvent", BookingPaymentEventSchema],
+  ["BookingTransaction", BookingTransactionSchema],
+  ["BookingLedger", BookingLedgerSchema],
+  ["BookingCommission", BookingCommissionSchema],
+  ["BookingSettlement", BookingSettlementSchema],
+  ["BookingRefund", BookingRefundSchema],
+  ["BookingInvoice", BookingInvoiceSchema],
+  ["BookingReceipt", BookingReceiptSchema],
+  ["BookingTaxRecord", BookingTaxRecordSchema],
+  ["BookingCoupon", BookingCouponSchema],
+  ["BookingOfferRedemption", BookingOfferRedemptionSchema],
+  ["BookingNotification", BookingNotificationSchema],
+  ["BookingReview", BookingReviewSchema],
+  ["BookingPolicy", BookingPolicySchema],
+  ["BookingHoliday", BookingHolidaySchema],
+  ["BookingAuditLog", BookingAuditLogSchema],
+  ["BookingReport", BookingReportSchema],
+  ["BookingIdentityProperty", BookingIdentityPropertySchema],
+  ["BookingIdentityCounter", BookingIdentityCounterSchema],
+].map(([name, schema]) => ({ name: name as string, schema: schema as any }));
+
+@Module({
+  imports: [
+    AshramsModule,
+    UsersModule,
+    PlatformSettingsModule,
+    WalletModule,
+    PartnersModule,
+    OrmModule.forFeature(models),
+  ],
+  controllers: [
+    BookingsController,
+    OffersController,
+    ReviewsController,
+    BookingFinanceController,
+    BookingIdentityController,
+    SelfBookingController,
+    PublicBookingPaymentController,
+  ],
+  providers: [
+    BookingPricingService,
+    BookingIdentityService,
+    BookingsService,
+    BookingPaymentLinkService,
+    SelfBookingService,
+    QrService,
+    OffersService,
+    ReviewsService,
+    BookingMaintenanceService,
+    BookingCheckinReminderService,
+    BookingFinanceService,
+    PgBookingRepository,
+    { provide: BOOKING_REPOSITORY, useExisting: PgBookingRepository },
+  ],
+  exports: [
+    BookingsService,
+    BookingPaymentLinkService,
+    SelfBookingService,
+    BookingPricingService,
+    OffersService,
+    OrmModule,
+  ],
+})
+export class BookingsModule {}
