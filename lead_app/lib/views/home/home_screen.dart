@@ -401,7 +401,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   Text(
                                     isShiftActive
-                                        ? 'Today work in progress'
+                                        ? 'Shift Started • On Duty'
                                         : (attendanceProvider
                                                   .todayStatus
                                                   .checkedOut
@@ -422,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   const SizedBox(height: 2),
                                   Text(
                                     isShiftActive
-                                        ? 'Route tracking & location pings are active'
+                                        ? 'Shift is active • Tap Check-Out to end shift'
                                         : (attendanceProvider
                                                   .todayStatus
                                                   .checkedOut

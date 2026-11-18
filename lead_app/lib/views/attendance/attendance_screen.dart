@@ -274,7 +274,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                   const SizedBox(width: 6),
                                   Text(
                                     isShiftActive
-                                        ? 'ON DUTY (SHIFT ACTIVE)'
+                                        ? 'SHIFT STARTED • ON DUTY'
                                         : (status.checkedOut
                                               ? 'SHIFT COMPLETED'
                                               : 'NOT CHECKED IN'),
