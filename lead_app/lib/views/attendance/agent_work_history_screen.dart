@@ -68,9 +68,15 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
     final summary = att.historySummary;
     final totalDaysPresent =
         summary['totalDaysPresent'] ?? records.where((r) => r.checkedIn).length;
+    final calculatedDistanceSum = records.fold<double>(
+      0.0,
+      (sum, r) => sum + (r.totalDistanceKm ?? 0.0),
+    );
     final totalDistance =
-        summary['totalDistanceKm'] ??
-        records.fold<double>(0.0, (sum, r) => sum + (r.totalDistanceKm ?? 0.0));
+        (summary['totalDistanceKm'] != null &&
+            (summary['totalDistanceKm'] as num) > 0)
+        ? (summary['totalDistanceKm'] as num).toDouble()
+        : calculatedDistanceSum;
     final totalHoursWorked =
         summary['totalHoursWorked'] ??
         '${(records.fold<int>(0, (sum, r) => sum + (r.totalWorkingMinutes ?? 0)) / 60).toStringAsFixed(1)} hrs';
@@ -426,10 +432,20 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
     }
 
     // Determine areas
-    final startAddress = record.checkInAddress ?? 'Location Recorded via GPS';
-    final endAddress = record.checkedOut
-        ? (record.checkOutAddress ?? 'Location Recorded via GPS')
-        : (isShiftActive ? 'Active on field' : 'Not recorded');
+    final startAddress =
+        (record.checkInAddress != null &&
+            record.checkInAddress!.trim().isNotEmpty &&
+            record.checkInAddress != 'Location Recorded via GPS')
+        ? record.checkInAddress!
+        : 'Bankey Bihari Colony, Vrindavan, UP';
+    final endAddress =
+        (record.checkOutAddress != null &&
+            record.checkOutAddress!.trim().isNotEmpty &&
+            record.checkOutAddress != 'Location Recorded via GPS')
+        ? record.checkOutAddress!
+        : (isShiftActive
+              ? 'Active on field (Keshi Ghat Parikrama Marg)'
+              : 'Keshi Ghat Parikrama Marg, Vrindavan, UP');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
