@@ -1,6 +1,8 @@
 
-const RAW_BASE = (import.meta.env.VITE_LEAD_API_URL || 'http://localhost:5000')
-  .trim()
+const rawEnv = (import.meta.env.VITE_LEAD_API_URL || 'https://api.tirvona.com');
+// Support single URL and gracefully handle comma-separated or quotes
+const firstUrl = String(rawEnv).split(',')[0].replace(/['"]/g, '').trim();
+const RAW_BASE = (firstUrl || 'https://api.tirvona.com')
   .replace(/\/+$/, '')
   .replace(/\/api$/, '');
 
