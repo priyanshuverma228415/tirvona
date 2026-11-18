@@ -37,16 +37,29 @@ class ApiClient {
         onRequest: (options, handler) async {
           final prefs = await SharedPreferences.getInstance();
 
+          // Automatically clean up stale local development IPs
+          final customUrl = prefs.getString(AppConstants.serverUrlKey);
+          if (customUrl != null &&
+              (customUrl.contains('192.168.') ||
+                  customUrl.contains('10.0.2.2') ||
+                  customUrl.contains('localhost') ||
+                  customUrl.contains('127.0.0.1'))) {
+            await prefs.remove(AppConstants.serverUrlKey);
+          }
+
           // In release mode, ALWAYS use the official production URL (api.tirvona.com)
           if (kReleaseMode) {
             options.baseUrl =
                 '${AppConstants.defaultBaseUrl}${AppConstants.apiPrefix}';
           } else {
-            // In debug mode, allow custom server URL override from SharedPreferences
-            final customUrl = prefs.getString(AppConstants.serverUrlKey);
-            if (customUrl != null && customUrl.trim().isNotEmpty) {
-              final cleaned = customUrl.trim().replaceAll(RegExp(r'/+$'), '');
+            // In debug mode, allow custom server URL override if explicitly set to a valid non-local server
+            final activeUrl = prefs.getString(AppConstants.serverUrlKey);
+            if (activeUrl != null && activeUrl.trim().isNotEmpty) {
+              final cleaned = activeUrl.trim().replaceAll(RegExp(r'/+$'), '');
               options.baseUrl = '$cleaned${AppConstants.apiPrefix}';
+            } else {
+              options.baseUrl =
+                  '${AppConstants.defaultBaseUrl}${AppConstants.apiPrefix}';
             }
           }
 
@@ -86,11 +99,19 @@ class ApiClient {
   }
 
   Future<String> getBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final custom = prefs.getString(AppConstants.serverUrlKey);
+    if (custom != null &&
+        (custom.contains('192.168.') ||
+            custom.contains('10.0.2.2') ||
+            custom.contains('localhost') ||
+            custom.contains('127.0.0.1'))) {
+      await prefs.remove(AppConstants.serverUrlKey);
+      return AppConstants.defaultBaseUrl;
+    }
     if (kReleaseMode) {
       return AppConstants.defaultBaseUrl;
     }
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(AppConstants.serverUrlKey) ??
-        AppConstants.defaultBaseUrl;
+    return custom ?? AppConstants.defaultBaseUrl;
   }
 }
