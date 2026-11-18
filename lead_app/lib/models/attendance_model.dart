@@ -163,8 +163,12 @@ class AttendanceModel {
 
     final rawNotes = json['notes']?.toString();
     final isCheckedOut = json['checkedOut'] == true;
+    final hasCheckInCoords = inLat != null &&
+        inLng != null &&
+        ((inLat as num).abs() > 0.001 || (inLng as num).abs() > 0.001);
     final isAutoCheckIn =
         !isCheckedOut &&
+        !hasCheckInCoords &&
         rawNotes != null &&
         (rawNotes == 'Shift login check-in' ||
             rawNotes.toLowerCase().contains('login check-in'));

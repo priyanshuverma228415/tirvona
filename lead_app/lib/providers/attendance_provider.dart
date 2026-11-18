@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 
 import '../../models/attendance_model.dart';
 import '../core/services/attendance_service.dart';
@@ -80,7 +81,20 @@ class AttendanceProvider extends ChangeNotifier {
         notes: notes,
       );
 
-      _todayStatus = result;
+      // Explicit user punch: Shift is now active!
+      _todayStatus = AttendanceModel(
+        id: result.id ?? _todayStatus.id,
+        date: result.date ?? DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        checkedIn: true,
+        checkInTime: result.checkInTime ?? DateTime.now(),
+        checkInLat: pos.latitude,
+        checkInLng: pos.longitude,
+        checkInAddress: result.checkInAddress ?? 'Current Location Recorded via GPS',
+        checkedOut: false,
+        totalDistanceKm: result.totalDistanceKm,
+        status: 'checked_in',
+        notes: (notes != null && notes.trim().isNotEmpty) ? notes.trim() : 'Field shift check-in',
+      );
       TrackingService.instance.startTracking();
       loadHistory();
 
@@ -120,7 +134,24 @@ class AttendanceProvider extends ChangeNotifier {
         notes: notes,
       );
 
-      _todayStatus = result;
+      // Explicit user check-out: Shift is completed!
+      _todayStatus = AttendanceModel(
+        id: result.id ?? _todayStatus.id,
+        date: result.date ?? _todayStatus.date ?? DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        checkedIn: true,
+        checkInTime: _todayStatus.checkInTime ?? result.checkInTime ?? DateTime.now(),
+        checkInLat: _todayStatus.checkInLat ?? pos.latitude,
+        checkInLng: _todayStatus.checkInLng ?? pos.longitude,
+        checkInAddress: _todayStatus.checkInAddress,
+        checkedOut: true,
+        checkOutTime: result.checkOutTime ?? DateTime.now(),
+        checkOutLat: pos.latitude,
+        checkOutLng: pos.longitude,
+        checkOutAddress: result.checkOutAddress ?? 'Current Location Recorded via GPS',
+        totalDistanceKm: result.totalDistanceKm ?? _todayStatus.totalDistanceKm,
+        status: 'checked_out',
+        notes: notes ?? 'Field shift check-out',
+      );
       TrackingService.instance.stopTracking();
       loadHistory();
 
