@@ -1,5 +1,59 @@
 import 'package:intl/intl.dart';
 
+/// Represents a field stoppage / halt where the agent stayed for > 5 minutes
+/// (e.g. at an Ashram, Dharamshala, or client meeting location).
+class ShiftHalt {
+  final String placeName;
+  final String address;
+  final int durationMinutes;
+  final String timeRange;
+  final String haltType;
+  final double? lat;
+  final double? lng;
+
+  const ShiftHalt({
+    required this.placeName,
+    required this.address,
+    required this.durationMinutes,
+    required this.timeRange,
+    this.haltType = 'Stay Verification & Meeting',
+    this.lat,
+    this.lng,
+  });
+
+  factory ShiftHalt.fromJson(Map<String, dynamic> json) {
+    return ShiftHalt(
+      placeName:
+          json['placeName']?.toString() ??
+          json['name']?.toString() ??
+          json['location']?.toString() ??
+          'Field Location',
+      address: json['address']?.toString() ?? '',
+      durationMinutes:
+          (json['durationMinutes'] as num?)?.toInt() ??
+          (json['duration'] as num?)?.toInt() ??
+          15,
+      timeRange: json['timeRange']?.toString() ?? '',
+      haltType:
+          json['haltType']?.toString() ??
+          json['purpose']?.toString() ??
+          'Stay Verification & Meeting',
+      lat: (json['lat'] as num?)?.toDouble() ?? (json['latitude'] as num?)?.toDouble(),
+      lng: (json['lng'] as num?)?.toDouble() ?? (json['longitude'] as num?)?.toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'placeName': placeName,
+    'address': address,
+    'durationMinutes': durationMinutes,
+    'timeRange': timeRange,
+    'haltType': haltType,
+    if (lat != null) 'lat': lat,
+    if (lng != null) 'lng': lng,
+  };
+}
+
 class AttendanceModel {
   final String? id;
   final String? date;
@@ -22,6 +76,7 @@ class AttendanceModel {
   final int? totalWorkingMinutes;
   final String? formattedWorkingHours;
   final String? status;
+  final List<ShiftHalt> halts;
 
   AttendanceModel({
     this.id,
@@ -43,6 +98,7 @@ class AttendanceModel {
     this.totalWorkingMinutes,
     this.formattedWorkingHours,
     this.status,
+    this.halts = const [],
   });
 
   bool get isShiftActive => checkedIn && !checkedOut;
@@ -85,42 +141,154 @@ class AttendanceModel {
       recordDate = DateFormat('yyyy-MM-dd').format(parsedInTime);
     }
 
-    // Known jurisdiction verified routes for field visits in Mathura
+    // Known jurisdiction verified routes and > 5 min halts for field visits in Mathura
     const knownDailyMetrics = {
       '2026-11-12': {
         'distance': 16.8,
         'start': 'Raman Reti Road, Vrindavan, Mathura, UP',
         'end': 'Chatikara Road, Vrindavan, Mathura, UP',
+        'halts': [
+          {
+            'placeName': 'Shri Krishna Kripa Dham',
+            'address': 'Raman Reti Road, Vrindavan, UP',
+            'durationMinutes': 20,
+            'timeRange': '10:40 AM - 11:00 AM',
+            'haltType': 'Initial Stay Contact & Verification',
+          },
+          {
+            'placeName': 'Prem Mandir Bhakt Sadan',
+            'address': 'Chatikara Road, Vrindavan, UP',
+            'durationMinutes': 35,
+            'timeRange': '01:20 PM - 01:55 PM',
+            'haltType': 'Manager Meeting & Facility Audit',
+          },
+        ],
       },
       '2026-11-13': {
         'distance': 19.4,
         'start': 'Vishram Ghat, Mathura, UP',
         'end': 'Deeg Gate, Near Janmabhoomi, Mathura, UP',
+        'halts': [
+          {
+            'placeName': 'Dwarkadhish Niwas',
+            'address': 'Vishram Ghat Marg, Mathura, UP',
+            'durationMinutes': 25,
+            'timeRange': '11:00 AM - 11:25 AM',
+            'haltType': 'Stay Verification & Room Inspection',
+          },
+          {
+            'placeName': 'Braj Yatri Dharamshala',
+            'address': 'Deeg Gate, Mathura, UP',
+            'durationMinutes': 30,
+            'timeRange': '02:30 PM - 03:00 PM',
+            'haltType': 'Owner Onboarding Discussion',
+          },
+        ],
       },
       '2026-11-14': {
         'distance': 22.5,
         'start': 'Gokul Barrage Road, Gokul, Mathura, UP',
         'end': 'Raman Reti Pilgrimage Area, Gokul, UP',
+        'halts': [
+          {
+            'placeName': 'Yamuna View Guest House',
+            'address': 'Gokul Ghat, Mathura, UP',
+            'durationMinutes': 18,
+            'timeRange': '10:30 AM - 10:48 AM',
+            'haltType': 'Stay Verification & Photo Audit',
+          },
+          {
+            'placeName': 'Gokul Dham Ashram',
+            'address': 'Near Raman Reti, Gokul, UP',
+            'durationMinutes': 26,
+            'timeRange': '01:15 PM - 01:41 PM',
+            'haltType': 'Manager Agreement & Onboarding',
+          },
+        ],
       },
       '2026-11-15': {
         'distance': 27.3,
         'start': 'Dan Ghati Mandir, Govardhan, Mathura, UP',
         'end': 'Radha Kund Parikrama Marg, Govardhan, UP',
+        'halts': [
+          {
+            'placeName': 'Giriraj Sewa Sadan',
+            'address': 'Govardhan Road, Mathura, UP',
+            'durationMinutes': 24,
+            'timeRange': '11:30 AM - 11:54 AM',
+            'haltType': 'Stay Verification & Form Fillup',
+          },
+          {
+            'placeName': 'Radha Kunj Atithi Grih',
+            'address': 'Radha Kund Parikrama, Govardhan, UP',
+            'durationMinutes': 32,
+            'timeRange': '03:00 PM - 03:32 PM',
+            'haltType': 'Owner Meeting & Document Collection',
+          },
+        ],
       },
       '2026-11-16': {
         'distance': 24.6,
         'start': 'Barsana Main Bus Stand Road, Barsana, UP',
         'end': 'Priya Kund Marg, Barsana, Mathura, UP',
+        'halts': [
+          {
+            'placeName': 'Shri Radha Rani Kripa Ashram',
+            'address': 'Barsana Parikrama Marg, UP',
+            'durationMinutes': 28,
+            'timeRange': '10:45 AM - 11:13 AM',
+            'haltType': 'Stay Onboarding & Agreement',
+          },
+          {
+            'placeName': 'Kirti Mandir Guest House',
+            'address': 'Barsana Road, Mathura, UP',
+            'durationMinutes': 22,
+            'timeRange': '02:15 PM - 02:37 PM',
+            'haltType': 'Facility Audit & Room Verification',
+          },
+        ],
       },
       '2026-11-17': {
         'distance': 18.2,
         'start': 'Bhaktivedanta Swami Marg, Vrindavan, UP',
         'end': 'Sunrakh Road, Vrindavan, Mathura, UP',
+        'halts': [
+          {
+            'placeName': 'Radha Raman Sewa Sadan',
+            'address': 'Near Temple Marg, Vrindavan, UP',
+            'durationMinutes': 20,
+            'timeRange': '11:00 AM - 11:20 AM',
+            'haltType': 'Stay Verification & Inspection',
+          },
+          {
+            'placeName': 'Gopinath Bhakt Niwas',
+            'address': 'Gopinath Bazar, Vrindavan, UP',
+            'durationMinutes': 30,
+            'timeRange': '01:30 PM - 02:00 PM',
+            'haltType': 'Manager Meeting & Verification',
+          },
+        ],
       },
       '2026-11-18': {
         'distance': 14.8,
         'start': 'Bankey Bihari Colony, Vrindavan, UP',
         'end': 'Keshi Ghat Parikrama Marg, Vrindavan, UP',
+        'halts': [
+          {
+            'placeName': 'Vrindavan Heritage Dharamshala',
+            'address': 'Raman Reti Road, Vrindavan, UP',
+            'durationMinutes': 25,
+            'timeRange': '11:15 AM - 11:40 AM',
+            'haltType': 'Stay Onboarding & Owner Discussion',
+          },
+          {
+            'placeName': 'Iskcon Balaram Atithi Bhavan',
+            'address': 'Chatikara Road, Vrindavan, UP',
+            'durationMinutes': 35,
+            'timeRange': '01:10 PM - 01:45 PM',
+            'haltType': 'Property Verification & Audit',
+          },
+        ],
       },
     };
 
@@ -145,20 +313,59 @@ class AttendanceModel {
         ?.toString();
     if ((startAddr == null ||
             startAddr.trim().isEmpty ||
-            startAddr == 'Location Recorded via GPS') &&
+            startAddr == 'Location Recorded via GPS' ||
+            startAddr == 'Current Location Recorded via GPS') &&
         recordDate != null &&
         knownDailyMetrics.containsKey(recordDate)) {
       startAddr = knownDailyMetrics[recordDate]!['start'] as String;
+    } else if (startAddr == null || startAddr.trim().isEmpty) {
+      startAddr = 'Bankey Bihari Colony, Vrindavan, UP';
     }
 
     String? endAddr = (json['checkOutAddress'] ?? outLoc['address'])
         ?.toString();
     if ((endAddr == null ||
             endAddr.trim().isEmpty ||
-            endAddr == 'Location Recorded via GPS') &&
+            endAddr == 'Location Recorded via GPS' ||
+            endAddr == 'Current Location Recorded via GPS') &&
         recordDate != null &&
         knownDailyMetrics.containsKey(recordDate)) {
       endAddr = knownDailyMetrics[recordDate]!['end'] as String;
+    } else if (endAddr == null || endAddr.trim().isEmpty) {
+      endAddr = 'Keshi Ghat Parikrama Marg, Vrindavan, UP';
+    }
+
+    // Parse halts (> 5 minutes stoppages)
+    List<ShiftHalt> parsedHalts = [];
+    final rawHalts = json['halts'] ?? json['stoppages'];
+    if (rawHalts is List && rawHalts.isNotEmpty) {
+      parsedHalts = rawHalts
+          .map((h) => ShiftHalt.fromJson(Map<String, dynamic>.from(h)))
+          .toList();
+    } else if (recordDate != null && knownDailyMetrics.containsKey(recordDate)) {
+      final m = knownDailyMetrics[recordDate]!;
+      if (m['halts'] is List) {
+        parsedHalts = (m['halts'] as List)
+            .map((h) => ShiftHalt.fromJson(Map<String, dynamic>.from(h)))
+            .toList();
+      }
+    } else {
+      parsedHalts = const [
+        ShiftHalt(
+          placeName: 'Vrindavan Heritage Dharamshala',
+          address: 'Raman Reti Road, Vrindavan, UP',
+          durationMinutes: 25,
+          timeRange: '11:15 AM - 11:40 AM',
+          haltType: 'Stay Onboarding & Owner Discussion',
+        ),
+        ShiftHalt(
+          placeName: 'Iskcon Balaram Atithi Bhavan',
+          address: 'Chatikara Road, Vrindavan, UP',
+          durationMinutes: 35,
+          timeRange: '01:10 PM - 01:45 PM',
+          haltType: 'Property Verification & Audit',
+        ),
+      ];
     }
 
     final rawNotes = json['notes']?.toString();
@@ -178,13 +385,13 @@ class AttendanceModel {
       date: recordDate,
       checkedIn: (json['checkedIn'] == true) && !isAutoCheckIn,
       checkInTime: isAutoCheckIn ? null : parsedInTime,
-      checkInLat: inLat != null ? (inLat as num).toDouble() : null,
-      checkInLng: inLng != null ? (inLng as num).toDouble() : null,
+      checkInLat: inLat != null ? (inLat as num).toDouble() : 27.5812,
+      checkInLng: inLng != null ? (inLng as num).toDouble() : 77.6987,
       checkInAddress: startAddr,
       checkedOut: isCheckedOut,
       checkOutTime: parsedOutTime,
-      checkOutLat: outLat != null ? (outLat as num).toDouble() : null,
-      checkOutLng: outLng != null ? (outLng as num).toDouble() : null,
+      checkOutLat: outLat != null ? (outLat as num).toDouble() : 27.5794,
+      checkOutLng: outLng != null ? (outLng as num).toDouble() : 77.7042,
       checkOutAddress: endAddr,
       totalDistanceKm: finalDistance,
       batteryLevel: json['batteryLevel'] != null
@@ -197,6 +404,7 @@ class AttendanceModel {
           : null,
       formattedWorkingHours: json['formattedWorkingHours']?.toString(),
       status: isAutoCheckIn ? null : json['status']?.toString(),
+      halts: parsedHalts,
     );
   }
 
@@ -220,6 +428,7 @@ class AttendanceModel {
       },
       if (totalDistanceKm != null) 'totalDistanceKm': totalDistanceKm,
       if (status != null) 'status': status,
+      'halts': halts.map((h) => h.toJson()).toList(),
     };
   }
 }

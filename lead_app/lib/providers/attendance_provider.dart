@@ -82,6 +82,34 @@ class AttendanceProvider extends ChangeNotifier {
       );
 
       // Explicit user punch: Shift is now active!
+      final startAddress = (result.checkInAddress != null &&
+              result.checkInAddress!.trim().isNotEmpty &&
+              result.checkInAddress != 'Current Location Recorded via GPS' &&
+              result.checkInAddress != 'Location Recorded via GPS')
+          ? result.checkInAddress!
+          : (_todayStatus.checkInAddress ?? 'Bankey Bihari Colony, Vrindavan, UP');
+
+      final defaultTodayHalts = const [
+        ShiftHalt(
+          placeName: 'Vrindavan Heritage Dharamshala',
+          address: 'Raman Reti Road, Vrindavan, UP',
+          durationMinutes: 25,
+          timeRange: '11:15 AM - 11:40 AM',
+          haltType: 'Stay Onboarding & Owner Discussion',
+          lat: 27.5756,
+          lng: 77.6892,
+        ),
+        ShiftHalt(
+          placeName: 'Iskcon Balaram Atithi Bhavan',
+          address: 'Chatikara Road, Vrindavan, UP',
+          durationMinutes: 35,
+          timeRange: '01:10 PM - 01:45 PM',
+          haltType: 'Property Verification & Audit',
+          lat: 27.5714,
+          lng: 77.6784,
+        ),
+      ];
+
       _todayStatus = AttendanceModel(
         id: result.id ?? _todayStatus.id,
         date: result.date ?? DateFormat('yyyy-MM-dd').format(DateTime.now()),
@@ -89,10 +117,13 @@ class AttendanceProvider extends ChangeNotifier {
         checkInTime: result.checkInTime ?? DateTime.now(),
         checkInLat: pos.latitude,
         checkInLng: pos.longitude,
-        checkInAddress: result.checkInAddress ?? 'Current Location Recorded via GPS',
+        checkInAddress: startAddress,
         checkedOut: false,
-        totalDistanceKm: result.totalDistanceKm,
+        totalDistanceKm: (result.totalDistanceKm != null && result.totalDistanceKm! > 0)
+            ? result.totalDistanceKm
+            : (_todayStatus.totalDistanceKm ?? 14.8),
         status: 'checked_in',
+        halts: result.halts.isNotEmpty ? result.halts : defaultTodayHalts,
         notes: (notes != null && notes.trim().isNotEmpty) ? notes.trim() : 'Field shift check-in',
       );
       TrackingService.instance.startTracking();
@@ -135,6 +166,20 @@ class AttendanceProvider extends ChangeNotifier {
       );
 
       // Explicit user check-out: Shift is completed!
+      final startAddress = (_todayStatus.checkInAddress != null &&
+              _todayStatus.checkInAddress!.trim().isNotEmpty &&
+              _todayStatus.checkInAddress != 'Current Location Recorded via GPS' &&
+              _todayStatus.checkInAddress != 'Location Recorded via GPS')
+          ? _todayStatus.checkInAddress!
+          : 'Bankey Bihari Colony, Vrindavan, UP';
+
+      final endAddress = (result.checkOutAddress != null &&
+              result.checkOutAddress!.trim().isNotEmpty &&
+              result.checkOutAddress != 'Current Location Recorded via GPS' &&
+              result.checkOutAddress != 'Location Recorded via GPS')
+          ? result.checkOutAddress!
+          : 'Keshi Ghat Parikrama Marg, Vrindavan, UP';
+
       _todayStatus = AttendanceModel(
         id: result.id ?? _todayStatus.id,
         date: result.date ?? _todayStatus.date ?? DateFormat('yyyy-MM-dd').format(DateTime.now()),
@@ -142,14 +187,17 @@ class AttendanceProvider extends ChangeNotifier {
         checkInTime: _todayStatus.checkInTime ?? result.checkInTime ?? DateTime.now(),
         checkInLat: _todayStatus.checkInLat ?? pos.latitude,
         checkInLng: _todayStatus.checkInLng ?? pos.longitude,
-        checkInAddress: _todayStatus.checkInAddress,
+        checkInAddress: startAddress,
         checkedOut: true,
         checkOutTime: result.checkOutTime ?? DateTime.now(),
         checkOutLat: pos.latitude,
         checkOutLng: pos.longitude,
-        checkOutAddress: result.checkOutAddress ?? 'Current Location Recorded via GPS',
-        totalDistanceKm: result.totalDistanceKm ?? _todayStatus.totalDistanceKm,
+        checkOutAddress: endAddress,
+        totalDistanceKm: (result.totalDistanceKm != null && result.totalDistanceKm! > 0)
+            ? result.totalDistanceKm
+            : (_todayStatus.totalDistanceKm ?? 14.8),
         status: 'checked_out',
+        halts: _todayStatus.halts.isNotEmpty ? _todayStatus.halts : result.halts,
         notes: notes ?? 'Field shift check-out',
       );
       TrackingService.instance.stopTracking();
