@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -444,26 +445,28 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
 
-                  // Server settings footer link
-                  Center(
-                    child: TextButton.icon(
-                      onPressed: _showServerSettings,
-                      icon: const Icon(
-                        Icons.dns_outlined,
-                        size: 16,
-                        color: AppColors.textSecondary,
-                      ),
-                      label: const Text(
-                        'Configure Server Host',
-                        style: TextStyle(
-                          fontSize: 12,
+                  // Server settings footer link (Debug mode only)
+                  if (!kReleaseMode) ...[
+                    const SizedBox(height: 12),
+                    Center(
+                      child: TextButton.icon(
+                        onPressed: _showServerSettings,
+                        icon: const Icon(
+                          Icons.dns_outlined,
+                          size: 16,
                           color: AppColors.textSecondary,
+                        ),
+                        label: const Text(
+                          'Configure Server Host',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

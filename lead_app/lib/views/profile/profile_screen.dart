@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -558,30 +559,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const Divider(height: 16, color: AppColors.borderLight),
 
-                // Server Configuration
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.dns_outlined,
-                    color: AppColors.primary,
-                  ),
-                  title: const Text(
-                    'Backend Server Host',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: Text(
-                    _serverUrl,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
+                // Server Configuration (Debug mode only)
+                if (!kReleaseMode) ...[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.dns_outlined,
+                      color: AppColors.primary,
                     ),
+                    title: const Text(
+                      'Backend Server Host',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _serverUrl,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: AppColors.textMuted,
+                    ),
+                    onTap: _showServerSettings,
                   ),
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: AppColors.textMuted,
-                  ),
-                  onTap: _showServerSettings,
-                ),
+                ],
               ],
             ),
           ),
