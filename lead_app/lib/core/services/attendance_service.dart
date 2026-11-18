@@ -35,9 +35,9 @@ class AttendanceService {
       if (address != null && address.isNotEmpty) {
         payload['address'] = address;
       }
-      if (notes != null && notes.isNotEmpty) {
-        payload['notes'] = notes;
-      }
+      payload['notes'] = (notes != null && notes.trim().isNotEmpty)
+          ? notes.trim()
+          : 'Field shift check-in';
 
       final response = await _apiClient.dio.post(
         ApiEndpoints.checkIn,
@@ -80,9 +80,9 @@ class AttendanceService {
       if (address != null && address.isNotEmpty) {
         payload['address'] = address;
       }
-      if (notes != null && notes.isNotEmpty) {
-        payload['notes'] = notes;
-      }
+      payload['notes'] = (notes != null && notes.trim().isNotEmpty)
+          ? notes.trim()
+          : 'Field shift check-in';
 
       final response = await _apiClient.dio.post(
         ApiEndpoints.checkOut,

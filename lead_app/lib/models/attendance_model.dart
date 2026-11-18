@@ -161,15 +161,23 @@ class AttendanceModel {
       endAddr = knownDailyMetrics[recordDate]!['end'] as String;
     }
 
+    final rawNotes = json['notes']?.toString();
+    final isCheckedOut = json['checkedOut'] == true;
+    final isAutoCheckIn =
+        !isCheckedOut &&
+        rawNotes != null &&
+        (rawNotes == 'Shift login check-in' ||
+            rawNotes.toLowerCase().contains('login check-in'));
+
     return AttendanceModel(
       id: (json['_id'] ?? json['id'])?.toString(),
       date: recordDate,
-      checkedIn: json['checkedIn'] == true,
-      checkInTime: parsedInTime,
+      checkedIn: (json['checkedIn'] == true) && !isAutoCheckIn,
+      checkInTime: isAutoCheckIn ? null : parsedInTime,
       checkInLat: inLat != null ? (inLat as num).toDouble() : null,
       checkInLng: inLng != null ? (inLng as num).toDouble() : null,
       checkInAddress: startAddr,
-      checkedOut: json['checkedOut'] == true,
+      checkedOut: isCheckedOut,
       checkOutTime: parsedOutTime,
       checkOutLat: outLat != null ? (outLat as num).toDouble() : null,
       checkOutLng: outLng != null ? (outLng as num).toDouble() : null,
@@ -178,13 +186,13 @@ class AttendanceModel {
       batteryLevel: json['batteryLevel'] != null
           ? (json['batteryLevel'] as num).toInt()
           : null,
-      notes: json['notes']?.toString(),
+      notes: isAutoCheckIn ? null : rawNotes,
       photoUrl: json['photoUrl']?.toString(),
       totalWorkingMinutes: json['totalWorkingMinutes'] != null
           ? (json['totalWorkingMinutes'] as num).toInt()
           : null,
       formattedWorkingHours: json['formattedWorkingHours']?.toString(),
-      status: json['status']?.toString(),
+      status: isAutoCheckIn ? null : json['status']?.toString(),
     );
   }
 

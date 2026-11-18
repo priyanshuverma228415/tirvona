@@ -73,10 +73,15 @@ export class LeadAttendanceService {
     });
 
     if (existing && existing.checkedIn && !existing.checkedOut) {
-      return {
-        message: "Already checked in today",
-        record: existing,
-      };
+      const isAuto =
+        existing.notes === "Shift login check-in" ||
+        (!existing.checkInCoords?.lat && !existing.checkInCoords?.lng);
+      if (!isAuto) {
+        return {
+          message: "Already checked in today",
+          record: existing,
+        };
+      }
     }
 
     const update = {
