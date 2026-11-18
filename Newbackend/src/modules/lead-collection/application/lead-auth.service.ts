@@ -104,18 +104,8 @@ export class LeadAuthService {
 
     const authUser = this.toAuthenticated(user);
 
-    if (user.role === "field_agent" && this.attendanceService) {
-      try {
-        // No coordinates: the server does not know where the phone is. The
-        // shift's route starts at the first fix the phone sends.
-        await this.attendanceService.markCheckIn(authUser, {
-          address: `${user.district || 'Mathura'}, ${user.state || 'Uttar Pradesh'}`,
-          notes: LOGIN_CHECK_IN_NOTES[0],
-        });
-      } catch {
-        // Non-blocking
-      }
-    }
+    // Note: Automatic check-in on login removed per user requirement.
+    // Agents must explicitly punch in via the Check-In screen/option to start their field shift.
 
     const payload: LeadTokenPayload = {
       sub: user._id.toString(),

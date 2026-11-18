@@ -22,15 +22,93 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
+  bool _hasShownCheckInPrompt = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       context.read<LeadProvider>().loadLeads();
-      context.read<AttendanceProvider>().loadTodayStatus();
+      await context.read<AttendanceProvider>().loadTodayStatus();
       LocationHelper.requestLocationPermission();
+
+      if (mounted) {
+        final att = context.read<AttendanceProvider>();
+        if (!att.todayStatus.isShiftActive &&
+            !att.todayStatus.checkedOut &&
+            !_hasShownCheckInPrompt) {
+          _hasShownCheckInPrompt = true;
+          _showCheckInPromptDialog();
+        }
+      }
     });
+  }
+
+  void _showCheckInPromptDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.pin_drop_rounded,
+                color: AppColors.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Start Today\'s Shift?',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'You are currently Off Duty. Would you like to punch Check-In now to start recording today\'s field route and activities?',
+          style: TextStyle(
+            fontSize: 13,
+            color: AppColors.textSecondary,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(
+              'Later / बाद में',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+              );
+            },
+            icon: const Icon(Icons.login, size: 18),
+            label: const Text('Check-In Now'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -259,6 +337,198 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
+              // Shift Attendance & Check-In Banner (Top Priority)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color:
+                          !isShiftActive &&
+                              !attendanceProvider.todayStatus.checkedOut
+                          ? AppColors.warningLight.withValues(alpha: 0.35)
+                          : AppColors.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color:
+                            !isShiftActive &&
+                                !attendanceProvider.todayStatus.checkedOut
+                            ? AppColors.warningBorder
+                            : AppColors.border,
+                        width:
+                            !isShiftActive &&
+                                !attendanceProvider.todayStatus.checkedOut
+                            ? 1.5
+                            : 1.0,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isShiftActive
+                                    ? AppColors.successLight
+                                    : (attendanceProvider.todayStatus.checkedOut
+                                          ? AppColors.surfaceSecondary
+                                          : AppColors.warningLight),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                isShiftActive
+                                    ? Icons.timer
+                                    : (attendanceProvider.todayStatus.checkedOut
+                                          ? Icons.check_circle_outline
+                                          : Icons.login_rounded),
+                                color: isShiftActive
+                                    ? AppColors.success
+                                    : (attendanceProvider.todayStatus.checkedOut
+                                          ? AppColors.textSecondary
+                                          : AppColors.warning),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isShiftActive
+                                        ? 'Today work in progress'
+                                        : (attendanceProvider
+                                                  .todayStatus
+                                                  .checkedOut
+                                              ? 'Today\'s Shift Completed'
+                                              : 'Shift Not Started • Check-In'),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      color:
+                                          !isShiftActive &&
+                                              !attendanceProvider
+                                                  .todayStatus
+                                                  .checkedOut
+                                          ? AppColors.warning
+                                          : AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    isShiftActive
+                                        ? 'Route tracking & location pings are active'
+                                        : (attendanceProvider
+                                                  .todayStatus
+                                                  .checkedOut
+                                              ? 'Daily route distance recorded'
+                                              : 'Punch Check-In to start your field shift'),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isShiftActive
+                                    ? AppColors.danger
+                                    : (attendanceProvider.todayStatus.checkedOut
+                                          ? AppColors.surfaceSecondary
+                                          : AppColors.primary),
+                                foregroundColor:
+                                    attendanceProvider.todayStatus.checkedOut
+                                    ? AppColors.textSecondary
+                                    : Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const AttendanceScreen(),
+                                  ),
+                                );
+                              },
+                              child: Text(
+                                isShiftActive
+                                    ? 'Check-Out'
+                                    : (attendanceProvider.todayStatus.checkedOut
+                                          ? 'Summary'
+                                          : 'Punch In'),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.only(top: 10),
+                          decoration: const BoxDecoration(
+                            border: Border(
+                              top: BorderSide(color: AppColors.borderLight),
+                            ),
+                          ),
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      const AgentWorkHistoryScreen(),
+                                ),
+                              );
+                            },
+                            child: const Row(
+                              children: [
+                                Icon(
+                                  Icons.history_rounded,
+                                  size: 15,
+                                  color: AppColors.primary,
+                                ),
+                                SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'View Daily Work & Shift History (दैनिक कार्य व किलोमीटर)',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 11,
+                                  color: AppColors.primary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
               // Metrics Row (4 Cards)
               SliverToBoxAdapter(
                 child: Padding(
@@ -405,152 +675,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ),
-
-              // Shift Attendance Banner
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: isShiftActive
-                                    ? AppColors.successLight
-                                    : AppColors.surfaceSecondary,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                isShiftActive ? Icons.timer : Icons.access_time,
-                                color: isShiftActive
-                                    ? AppColors.success
-                                    : AppColors.textSecondary,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    isShiftActive
-                                        ? 'Today work in progress'
-                                        : 'No Active Shift',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    isShiftActive
-                                        ? 'Route tracking & location pings are active'
-                                        : 'Punch check-in before beginning field visits',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isShiftActive
-                                    ? AppColors.danger
-                                    : AppColors.primary,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const AttendanceScreen(),
-                                  ),
-                                );
-                              },
-                              child: Text(
-                                isShiftActive ? 'Check-Out' : 'Punch In',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.only(top: 10),
-                          decoration: const BoxDecoration(
-                            border: Border(
-                              top: BorderSide(color: AppColors.borderLight),
-                            ),
-                          ),
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      const AgentWorkHistoryScreen(),
-                                ),
-                              );
-                            },
-                            child: const Row(
-                              children: [
-                                Icon(
-                                  Icons.history_rounded,
-                                  size: 15,
-                                  color: AppColors.primary,
-                                ),
-                                SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    'View Daily Work & Shift History (दैनिक कार्य व किलोमीटर)',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.arrow_forward_ios,
-                                  size: 11,
-                                  color: AppColors.primary,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),

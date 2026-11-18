@@ -638,6 +638,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
                 if (confirm == true) {
                   await auth.logout();
+                  if (context.mounted) {
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  }
                 }
               },
             ),
