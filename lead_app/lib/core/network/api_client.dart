@@ -40,7 +40,18 @@ class ApiClient {
           final customUrl = prefs.getString(AppConstants.serverUrlKey);
           if (customUrl != null && customUrl.trim().isNotEmpty) {
             final cleaned = customUrl.trim().replaceAll(RegExp(r'/+$'), '');
-            options.baseUrl = '$cleaned${AppConstants.apiPrefix}';
+            // In release mode, automatically clean up stale local development IPs
+            if (kReleaseMode &&
+                (cleaned.contains('192.168.') ||
+                    cleaned.contains('10.0.2.2') ||
+                    cleaned.contains('localhost') ||
+                    cleaned.contains('127.0.0.1'))) {
+              await prefs.remove(AppConstants.serverUrlKey);
+              options.baseUrl =
+                  '${AppConstants.defaultBaseUrl}${AppConstants.apiPrefix}';
+            } else {
+              options.baseUrl = '$cleaned${AppConstants.apiPrefix}';
+            }
           }
 
           var t = _token;
@@ -80,7 +91,16 @@ class ApiClient {
 
   Future<String> getBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(AppConstants.serverUrlKey) ??
-        AppConstants.defaultBaseUrl;
+    final custom = prefs.getString(AppConstants.serverUrlKey);
+    if (kReleaseMode &&
+        custom != null &&
+        (custom.contains('192.168.') ||
+            custom.contains('10.0.2.2') ||
+            custom.contains('localhost') ||
+            custom.contains('127.0.0.1'))) {
+      await prefs.remove(AppConstants.serverUrlKey);
+      return AppConstants.defaultBaseUrl;
+    }
+    return custom ?? AppConstants.defaultBaseUrl;
   }
 }

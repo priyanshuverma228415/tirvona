@@ -86,14 +86,14 @@ class _LoginScreenState extends State<LoginScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Enter backend host URL (e.g. http://10.0.2.2:5000 or http://localhost:5000):',
+              'Enter backend host URL (e.g. https://api.tirvona.com):',
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: urlController,
               decoration: InputDecoration(
-                hintText: 'http://10.0.2.2:5000',
+                hintText: 'https://api.tirvona.com',
                 filled: true,
                 fillColor: AppColors.background,
                 border: OutlineInputBorder(

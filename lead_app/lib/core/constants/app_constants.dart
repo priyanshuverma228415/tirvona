@@ -6,17 +6,20 @@ class AppConstants {
   static const String appName = 'Tirvona Lead';
   static const String appVersion = '1.0.0';
 
-  // Base API URL default:
-  // Android emulator uses 10.0.2.2 to connect to host machine localhost:5000
-  // Web / Desktop / physical devices use localhost or custom host.
+  // Base API URL:
+  // Production URL: https://api.tirvona.com
+  // Debug mode defaults to local development server if needed.
   static String get defaultBaseUrl {
+    if (kReleaseMode) {
+      return 'https://api.tirvona.com';
+    }
     if (kIsWeb) return 'http://localhost:5000';
     try {
       if (Platform.isAndroid) {
-        return 'http://10.0.2.2:5000';
+        return 'https://api.tirvona.com';
       }
     } catch (_) {}
-    return 'http://localhost:5000';
+    return 'https://api.tirvona.com';
   }
 
   static const String apiPrefix = '/api/lead-collection';

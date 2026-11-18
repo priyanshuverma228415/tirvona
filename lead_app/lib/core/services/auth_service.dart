@@ -47,6 +47,19 @@ class AuthService {
         }
         throw Exception(msg.toString());
       }
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw Exception(
+          'Unable to connect to server. Please check your internet connection or server host.',
+        );
+      }
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw Exception(
+            'Unable to connect to server. Please check your internet connection or server host.');
+      }
       throw Exception('Login failed: ${e.message}');
     }
   }
@@ -81,6 +94,19 @@ class AuthService {
           throw Exception(msg.join(', '));
         }
         throw Exception(msg.toString());
+      }
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw Exception(
+          'Unable to connect to server. Please check your internet connection or server host.',
+        );
+      }
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw Exception(
+            'Unable to connect to server. Please check your internet connection or server host.');
       }
       throw Exception('Registration failed: ${e.message}');
     }
