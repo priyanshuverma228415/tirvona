@@ -22,7 +22,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
-  bool _hasShownCheckInPrompt = false;
 
   @override
   void initState() {
@@ -30,85 +29,13 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       context.read<LeadProvider>().loadLeads();
       await context.read<AttendanceProvider>().loadTodayStatus();
-      LocationHelper.requestLocationPermission();
-
       if (mounted) {
-        final att = context.read<AttendanceProvider>();
-        if (!att.todayStatus.isShiftActive &&
-            !att.todayStatus.checkedOut &&
-            !_hasShownCheckInPrompt) {
-          _hasShownCheckInPrompt = true;
-          _showCheckInPromptDialog();
-        }
+        await LocationHelper.ensureMandatoryLocation(
+          context,
+          actionTitle: 'use Field Console and start shifts',
+        );
       }
     });
-  }
-
-  void _showCheckInPromptDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.pin_drop_rounded,
-                color: AppColors.primary,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Start Today\'s Shift?',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'You are currently Off Duty. Would you like to punch Check-In now to start recording today\'s field route and activities?',
-          style: TextStyle(
-            fontSize: 13,
-            color: AppColors.textSecondary,
-            height: 1.4,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              'Later / बाद में',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AttendanceScreen()),
-              );
-            },
-            icon: const Icon(Icons.login, size: 18),
-            label: const Text('Check-In Now'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -401,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   Text(
                                     isShiftActive
-                                        ? 'Shift Started • On Duty'
+                                        ? 'Your Shift is Active • On Duty'
                                         : (attendanceProvider
                                                   .todayStatus
                                                   .checkedOut
@@ -411,12 +338,13 @@ class _HomeScreenState extends State<HomeScreen> {
                                       fontSize: 13,
                                       fontWeight: FontWeight.w800,
                                       color:
-                                          !isShiftActive &&
-                                              !attendanceProvider
-                                                  .todayStatus
-                                                  .checkedOut
-                                          ? AppColors.warning
-                                          : AppColors.textPrimary,
+                                          isShiftActive
+                                              ? AppColors.success
+                                              : (!attendanceProvider
+                                                      .todayStatus
+                                                      .checkedOut
+                                                  ? AppColors.warning
+                                                  : AppColors.textPrimary),
                                     ),
                                   ),
                                   const SizedBox(height: 2),

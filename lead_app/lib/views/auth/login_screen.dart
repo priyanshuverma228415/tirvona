@@ -56,8 +56,14 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     // MANDATORY LOCATION CHECK BEFORE LOGIN
+    FocusScope.of(context).unfocus();
     final locationOk = await LocationHelper.ensureLocationForLogin(context);
     if (!mounted || !locationOk) {
+      if (mounted) {
+        setState(() {
+          _localError = 'Device location permission is compulsory to sign in.';
+        });
+      }
       return;
     }
 
