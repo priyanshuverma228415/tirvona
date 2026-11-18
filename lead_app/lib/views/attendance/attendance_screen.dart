@@ -759,42 +759,62 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
           // Trail indicator
           Padding(
-            padding: const EdgeInsets.only(left: 13, top: 4, bottom: 4),
-            child: Row(
-              children: [
-                Container(
-                  width: 2,
-                  height: 30,
-                  color: AppColors.primary.withValues(alpha: 0.3),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.25),
                 ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.background,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.route_outlined, size: 14, color: AppColors.primary),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Route Trail: Raman Reti Road ➔ Keshi Ghat Parikrama (${distance.toStringAsFixed(1)} km)',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                        ),
-                      ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(
+                      Icons.alt_route_rounded,
+                      size: 16,
+                      color: AppColors.primary,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textPrimary,
+                          height: 1.4,
+                        ),
+                        children: [
+                          const TextSpan(
+                            text: 'Route Trail: ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const TextSpan(
+                            text: 'Raman Reti Road ➔ Keshi Ghat Parikrama Marg',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          TextSpan(
+                            text: ' (${distance.toStringAsFixed(1)} km Today)',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primaryDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
