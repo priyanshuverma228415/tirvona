@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/network/api_client.dart';
 import '../../core/utils/location_helper.dart';
 import '../../providers/auth_provider.dart';
+import '../home/home_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -62,7 +63,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final auth = context.read<AuthProvider>();
     final success = await auth.login(phone, password);
-    if (!success && mounted) {
+    if (!mounted) return;
+    if (success) {
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (route) => false,
+      );
+    } else {
       setState(() {
         _localError =
             auth.errorMessage ?? 'Login failed. Please check credentials.';

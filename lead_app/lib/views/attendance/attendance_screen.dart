@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/location_helper.dart';
 import '../../providers/attendance_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../auth/login_screen.dart';
 import 'agent_work_history_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -147,9 +148,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            onPressed: () {
+            onPressed: () async {
+              final nav = Navigator.of(context, rootNavigator: true);
               Navigator.pop(ctx);
-              context.read<AuthProvider>().logout();
+              await context.read<AuthProvider>().logout();
+              nav.pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
             },
             child: const Text('Sign In Again'),
           ),

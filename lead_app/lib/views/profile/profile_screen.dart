@@ -10,6 +10,7 @@ import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/lead_provider.dart';
 import '../attendance/agent_work_history_screen.dart';
+import '../auth/login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -610,6 +611,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
               onPressed: () async {
+                final nav = Navigator.of(context, rootNavigator: true);
                 final confirm = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
@@ -638,9 +640,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 );
                 if (confirm == true) {
                   await auth.logout();
-                  if (context.mounted) {
-                    Navigator.of(context).popUntil((route) => route.isFirst);
-                  }
+                  nav.pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false,
+                  );
                 }
               },
             ),
