@@ -6,6 +6,12 @@
 	<string>Tirvona Lead needs your location to verify field visits and ashram coordinates.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Tirvona Lead needs location access during active shifts to record routes.</string>
+	<key>GMSApiKey</key>
+	<string>$(MAPS_API_KEY)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Tirvona Lead needs camera access to capture ashram and check-in photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

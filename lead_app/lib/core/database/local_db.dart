@@ -22,7 +22,7 @@ class LocalDatabase {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -73,6 +73,8 @@ class LocalDatabase {
         accuracy REAL,
         speed REAL,
         heading REAL,
+        altitude REAL,
+        source TEXT,
         batteryLevel INTEGER,
         isCharging INTEGER,
         recordedAt TEXT NOT NULL,
@@ -92,6 +94,14 @@ class LocalDatabase {
         await db.execute(
           'ALTER TABLE leads ADD COLUMN agentNotesAudioJson TEXT',
         );
+      } catch (_) {}
+    }
+    if (oldVersion < 3) {
+      try {
+        await db.execute('ALTER TABLE tracking_pings ADD COLUMN altitude REAL');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE tracking_pings ADD COLUMN source TEXT');
       } catch (_) {}
     }
   }
@@ -146,6 +156,8 @@ class LocalDatabase {
   }
 
   // Ping operations
+  /// Queues one GPS fix on the phone until it reaches the server.
+  /// `recordedAt` must be a UTC ISO string (ending in "Z").
   Future<void> queueTrackingPing(Map<String, dynamic> ping) async {
     final db = await database;
     await db.insert('tracking_pings', {
@@ -154,21 +166,51 @@ class LocalDatabase {
       'accuracy': ping['accuracy'],
       'speed': ping['speed'],
       'heading': ping['heading'],
+      'altitude': ping['altitude'],
+      'source': ping['source'],
       'batteryLevel': ping['batteryLevel'],
-      'isCharging': ping['isCharging'] == true ? 1 : 0,
-      'recordedAt': ping['recordedAt'] ?? DateTime.now().toIso8601String(),
+      'isCharging':
+          (ping['isCharging'] == true || ping['isCharging'] == 1) ? 1 : 0,
+      'recordedAt':
+          ping['recordedAt'] ?? DateTime.now().toUtc().toIso8601String(),
       'isSynced': 0,
     });
   }
 
-  Future<List<Map<String, dynamic>>> getUnsyncedPings() async {
+  /// Oldest queued fixes first, so a backlog uploads in the order it was taken.
+  Future<List<Map<String, dynamic>>> getUnsyncedPings({int limit = 100}) async {
     final db = await database;
     return await db.query(
       'tracking_pings',
       where: 'isSynced = ?',
       whereArgs: [0],
-      limit: 50,
+      orderBy: 'id ASC',
+      limit: limit,
     );
+  }
+
+  Future<int> countUnsyncedPings() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM tracking_pings WHERE isSynced = 0',
+    );
+    return (rows.first['c'] as int?) ?? 0;
+  }
+
+  Future<void> deletePings(List<int> ids) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.delete(
+      'tracking_pings',
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
+
+  Future<void> clearAllPings() async {
+    final db = await database;
+    await db.delete('tracking_pings');
   }
 
   Future<void> markPingsSynced(List<int> ids) async {

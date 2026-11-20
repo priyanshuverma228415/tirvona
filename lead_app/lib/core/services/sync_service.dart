@@ -3,6 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../constants/api_endpoints.dart';
 import '../database/local_db.dart';
 import '../network/api_client.dart';
+import 'tracking_service.dart';
 
 class SyncService {
   static final SyncService instance = SyncService._init();
@@ -43,36 +44,8 @@ class SyncService {
         } catch (_) {}
       }
 
-      // 2. Sync pending pings in batch
-      final unsyncedPings = await _localDb.getUnsyncedPings();
-      if (unsyncedPings.isNotEmpty) {
-        final pingIds = <int>[];
-        final fixes = <Map<String, dynamic>>[];
-        for (final ping in unsyncedPings) {
-          pingIds.add(ping['id'] as int);
-          final fix = <String, dynamic>{
-            'lat': ping['lat'],
-            'lng': ping['lng'],
-            'recordedAt':
-                ping['recordedAt'] ?? DateTime.now().toIso8601String(),
-            'source': 'background',
-          };
-          if (ping['accuracy'] != null) fix['accuracy'] = ping['accuracy'];
-          if (ping['speed'] != null) fix['speed'] = ping['speed'];
-          if (ping['heading'] != null) fix['heading'] = ping['heading'];
-          fixes.add(fix);
-        }
-
-        try {
-          await _apiClient.dio.post(
-            ApiEndpoints.trackingFixes,
-            data: {'fixes': fixes},
-          );
-          await _localDb.markPingsSynced(pingIds);
-          await _localDb.cleanOldPings();
-          pingsSynced = pingIds.length;
-        } catch (_) {}
-      }
+      // 2. Route points queued on the phone (one uploader, one format).
+      pingsSynced = await TrackingService.instance.uploadPending();
     } finally {
       _isSyncing = false;
     }

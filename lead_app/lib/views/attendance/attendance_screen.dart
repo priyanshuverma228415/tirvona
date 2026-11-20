@@ -3,11 +3,13 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/services/tracking_service.dart';
 import '../../core/utils/location_helper.dart';
 import '../../models/attendance_model.dart';
 import '../../providers/attendance_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../auth/login_screen.dart';
+import '../tracking/my_live_map_screen.dart';
 import 'agent_work_history_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -19,6 +21,7 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
   final _notesController = TextEditingController();
+  bool _isActionProcessing = false;
 
   @override
   void initState() {
@@ -41,77 +44,94 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   void _punchCheckIn() async {
     FocusScope.of(context).unfocus();
-    // Location permission and GPS MUST be active to check in
-    final position = await LocationHelper.ensureLocationForCheckIn(context);
-    if (!mounted || position == null) {
-      // User cancelled, unmounted, or location not enabled
-      return;
-    }
+    setState(() => _isActionProcessing = true);
 
-    final att = context.read<AttendanceProvider>();
-    final notes = _notesController.text.trim();
-    final ok = await att.punchCheckIn(position: position, notes: notes);
+    try {
+      final position = await LocationHelper.ensureLocationForCheckIn(context);
+      if (!mounted) return;
+      if (position == null) {
+        setState(() => _isActionProcessing = false);
+        return;
+      }
 
-    if (mounted) {
-      if (ok) {
-        _notesController.clear();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.success,
-            content: Text(
-              'Shift started! Check-in recorded with GPS coordinates.',
-            ),
-          ),
-        );
-      } else {
-        final err = att.errorMessage ?? 'Check-in failed. Please retry.';
-        if (err.toLowerCase().contains('sign-in required') ||
-            err.toLowerCase().contains('unauthorized') ||
-            err.toLowerCase().contains('session expired')) {
-          _showSessionExpiredDialog();
-        } else {
+      final att = context.read<AttendanceProvider>();
+      final notes = _notesController.text.trim();
+      final ok = await att.punchCheckIn(position: position, notes: notes);
+
+      if (mounted) {
+        if (ok) {
+          _notesController.clear();
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(backgroundColor: AppColors.danger, content: Text(err)),
+            const SnackBar(
+              backgroundColor: AppColors.success,
+              content: Text(
+                'Shift started! Check-in recorded with real-time GPS coordinates.',
+              ),
+            ),
           );
+        } else {
+          final err = att.errorMessage ?? 'Check-in failed. Please retry.';
+          if (err.toLowerCase().contains('sign-in required') ||
+              err.toLowerCase().contains('unauthorized') ||
+              err.toLowerCase().contains('session expired')) {
+            _showSessionExpiredDialog();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(backgroundColor: AppColors.danger, content: Text(err)),
+            );
+          }
         }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isActionProcessing = false);
       }
     }
   }
 
   void _punchCheckOut() async {
     FocusScope.of(context).unfocus();
-    // Location permission and GPS MUST be active to check out
-    final position = await LocationHelper.ensureLocationForCheckIn(context);
-    if (!mounted || position == null) {
-      return;
-    }
+    setState(() => _isActionProcessing = true);
 
-    final att = context.read<AttendanceProvider>();
-    final notes = _notesController.text.trim();
-    final ok = await att.punchCheckOut(position: position, notes: notes);
+    try {
+      final position = await LocationHelper.ensureLocationForCheckIn(context);
+      if (!mounted) return;
+      if (position == null) {
+        setState(() => _isActionProcessing = false);
+        return;
+      }
 
-    if (mounted) {
-      if (ok) {
-        _notesController.clear();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.primary,
-            content: Text(
-              'Shift completed! Check-out recorded and shift distance computed.',
-            ),
-          ),
-        );
-      } else {
-        final err = att.errorMessage ?? 'Check-out failed. Please retry.';
-        if (err.toLowerCase().contains('sign-in required') ||
-            err.toLowerCase().contains('unauthorized') ||
-            err.toLowerCase().contains('session expired')) {
-          _showSessionExpiredDialog();
-        } else {
+      final att = context.read<AttendanceProvider>();
+      final notes = _notesController.text.trim();
+      final ok = await att.punchCheckOut(position: position, notes: notes);
+
+      if (mounted) {
+        if (ok) {
+          _notesController.clear();
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(backgroundColor: AppColors.danger, content: Text(err)),
+            const SnackBar(
+              backgroundColor: AppColors.primary,
+              content: Text(
+                'Shift completed! Real-time check-out & distance recorded successfully.',
+              ),
+            ),
           );
+        } else {
+          final err = att.errorMessage ?? 'Check-out failed. Please retry.';
+          if (err.toLowerCase().contains('sign-in required') ||
+              err.toLowerCase().contains('unauthorized') ||
+              err.toLowerCase().contains('session expired')) {
+            _showSessionExpiredDialog();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(backgroundColor: AppColors.danger, content: Text(err)),
+            );
+          }
         }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isActionProcessing = false);
       }
     }
   }
@@ -152,6 +172,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             onPressed: () async {
               final nav = Navigator.of(context, rootNavigator: true);
               Navigator.pop(ctx);
+              if (context.mounted) {
+                context.read<AttendanceProvider>().resetState();
+              }
               await context.read<AuthProvider>().logout();
               nav.pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -392,7 +415,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'Distance Travelled Today: ${(status.totalDistanceKm ?? 14.8).toStringAsFixed(1)} km',
+                                'Distance Travelled Today: ${(status.totalDistanceKm ?? 0.0).toStringAsFixed(1)} km',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -479,14 +502,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 borderRadius: BorderRadius.circular(14),
                               ),
                             ),
-                            onPressed: att.isPunching
+                            onPressed: (att.isPunching || _isActionProcessing)
                                 ? null
                                 : (isShiftActive
                                       ? _punchCheckOut
                                       : (!status.checkedOut
                                             ? _punchCheckIn
                                             : null)),
-                            child: att.isPunching
+                            child: (att.isPunching || _isActionProcessing)
                                 ? const SizedBox(
                                     width: 20,
                                     height: 20,
@@ -507,10 +530,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                       const SizedBox(width: 8),
                                       Text(
                                         isShiftActive
-                                            ? 'Punch Check-Out (End Shift)'
+                                            ? 'Check-Out (End Shift)'
                                             : (status.checkedOut
                                                   ? 'Today\'s Shift Completed'
-                                                  : 'Punch Check-In (Start Shift)'),
+                                                  : 'Check-In (Start Shift)'),
                                         style: const TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.bold,
@@ -557,6 +580,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ),
                   const SizedBox(height: 16),
 
+                  // Live Route Map Button
+                  SizedBox(
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.navigation_rounded, size: 18),
+                      label: const Text(
+                        'Live Route Map (लाइव मैप)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const MyLiveMapScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
                   // View Daily Work History Button
                   SizedBox(
                     height: 48,
@@ -596,36 +651,42 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final startAddress = (status.checkInAddress != null &&
             status.checkInAddress!.trim().isNotEmpty &&
             status.checkInAddress != 'Location Recorded via GPS' &&
-            status.checkInAddress != 'Current Location Recorded via GPS')
+            status.checkInAddress != 'Current Location Recorded via GPS' &&
+            status.checkInAddress != 'Mathura, Uttar Pradesh')
         ? status.checkInAddress!
-        : 'Bankey Bihari Colony, Vrindavan, UP';
+        : ((status.checkInLat != null && status.checkInLng != null)
+            ? 'GPS: ${status.checkInLat!.toStringAsFixed(4)}° N, ${status.checkInLng!.toStringAsFixed(4)}° E'
+            : 'Check-in location recorded');
 
     final endAddress = (status.checkOutAddress != null &&
             status.checkOutAddress!.trim().isNotEmpty &&
             status.checkOutAddress != 'Location Recorded via GPS' &&
-            status.checkOutAddress != 'Current Location Recorded via GPS')
+            status.checkOutAddress != 'Current Location Recorded via GPS' &&
+            status.checkOutAddress != 'Mathura, Uttar Pradesh')
         ? status.checkOutAddress!
         : (isShiftActive
-            ? 'Active on Field (Keshi Ghat Parikrama Marg, Vrindavan)'
-            : 'Keshi Ghat Parikrama Marg, Vrindavan, UP');
+            ? 'Active on Field (Live route tracking)'
+            : ((status.checkOutLat != null && status.checkOutLng != null)
+                ? 'GPS: ${status.checkOutLat!.toStringAsFixed(4)}° N, ${status.checkOutLng!.toStringAsFixed(4)}° E'
+                : 'Pending check-out'));
 
     final distance = (status.totalDistanceKm != null && status.totalDistanceKm! > 0)
         ? status.totalDistanceKm!
-        : 14.8;
+        : (isShiftActive ? TrackingService.instance.distanceTravelledKm : 0.0);
 
     final inLatStr = (status.checkInLat != null && status.checkInLat! != 0)
         ? status.checkInLat!.toStringAsFixed(4)
-        : '27.5812';
+        : null;
     final inLngStr = (status.checkInLng != null && status.checkInLng! != 0)
         ? status.checkInLng!.toStringAsFixed(4)
-        : '77.6987';
+        : null;
 
     final outLatStr = (status.checkOutLat != null && status.checkOutLat! != 0)
         ? status.checkOutLat!.toStringAsFixed(4)
-        : '27.5794';
+        : null;
     final outLngStr = (status.checkOutLng != null && status.checkOutLng! != 0)
         ? status.checkOutLng!.toStringAsFixed(4)
-        : '77.7042';
+        : null;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -798,9 +859,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               color: AppColors.primary,
                             ),
                           ),
-                          const TextSpan(
-                            text: 'Raman Reti Road ➔ Keshi Ghat Parikrama Marg',
-                            style: TextStyle(fontWeight: FontWeight.w600),
+                          TextSpan(
+                            text: isShiftActive
+                                ? '$startAddress ➔ Active on Field'
+                                : (status.checkedOut
+                                    ? '$startAddress ➔ $endAddress'
+                                    : 'Shift not started'),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           TextSpan(
                             text: ' (${distance.toStringAsFixed(1)} km Today)',
@@ -901,9 +966,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       ),
                       child: Text(
                         status.checkedOut
-                            ? '📍 GPS: $outLatStr° N, $outLngStr° E (Check-Out Fix)'
+                            ? '📍 GPS: ${outLatStr ?? '--'}° N, ${outLngStr ?? '--'}° E (Check-Out Fix)'
                             : (isShiftActive
-                                ? '📍 GPS: Live tracking fix active (Mathura Hub)'
+                                ? '📍 GPS: Live tracking fix active'
                                 : '📍 GPS: Recorded upon check-out'),
                         style: const TextStyle(
                           fontSize: 10,
@@ -925,22 +990,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget _buildStoppagesCard(AttendanceModel status) {
     final halts = status.halts.isNotEmpty
         ? status.halts
-        : const [
-            ShiftHalt(
-              placeName: 'Vrindavan Heritage Dharamshala',
-              address: 'Raman Reti Road, Vrindavan, UP',
-              durationMinutes: 25,
-              timeRange: '11:15 AM - 11:40 AM',
-              haltType: 'Stay Onboarding & Owner Discussion',
-            ),
-            ShiftHalt(
-              placeName: 'Iskcon Balaram Atithi Bhavan',
-              address: 'Chatikara Road, Vrindavan, UP',
-              durationMinutes: 35,
-              timeRange: '01:10 PM - 01:45 PM',
-              haltType: 'Property Verification & Audit',
-            ),
-          ];
+        : TrackingService.instance.trackedHalts;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -979,16 +1029,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: AppColors.warningLight,
+                  color: halts.isNotEmpty ? AppColors.warningLight : AppColors.surfaceSecondary,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.warningBorder),
+                  border: Border.all(color: halts.isNotEmpty ? AppColors.warningBorder : AppColors.border),
                 ),
                 child: Text(
                   '${halts.length} Stoppages (>5m)',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.warning,
+                    color: halts.isNotEmpty ? AppColors.warning : AppColors.textMuted,
                   ),
                 ),
               ),
@@ -1004,7 +1054,42 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
           const SizedBox(height: 12),
 
-          ...halts.map((halt) {
+          if (halts.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Column(
+                children: [
+                  Icon(Icons.timer_outlined, size: 28, color: AppColors.textMuted),
+                  SizedBox(height: 8),
+                  Text(
+                    'No field halts (> 5 mins) recorded yet today',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'When you remain at a client meeting or survey location for > 5 minutes, it will automatically appear here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textMuted,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...halts.map((halt) {
             return Container(
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.all(12),

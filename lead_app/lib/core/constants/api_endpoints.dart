@@ -22,4 +22,11 @@ class ApiEndpoints {
   static const String trackingFixes = '/agent/tracking/fixes';
   static const String trackingPing = '/agent/tracking/fixes';
   static const String shiftTracking = '/agent/tracking/shift';
+  static const String trackingToday = '/agent/tracking/today';
+
+  // Supervisor (field_supervisor logins only)
+  /// Newest stored position of every agent in the supervisor's district.
+  static const String supervisorLiveTracking = '/supervisor/tracking/live';
+  static String supervisorAgentTracking(String agentId) =>
+      '/supervisor/agents/$agentId/tracking';
 }

@@ -141,157 +141,6 @@ class AttendanceModel {
       recordDate = DateFormat('yyyy-MM-dd').format(parsedInTime);
     }
 
-    // Known jurisdiction verified routes and > 5 min halts for field visits in Mathura
-    const knownDailyMetrics = {
-      '2026-11-12': {
-        'distance': 16.8,
-        'start': 'Raman Reti Road, Vrindavan, Mathura, UP',
-        'end': 'Chatikara Road, Vrindavan, Mathura, UP',
-        'halts': [
-          {
-            'placeName': 'Shri Krishna Kripa Dham',
-            'address': 'Raman Reti Road, Vrindavan, UP',
-            'durationMinutes': 20,
-            'timeRange': '10:40 AM - 11:00 AM',
-            'haltType': 'Initial Stay Contact & Verification',
-          },
-          {
-            'placeName': 'Prem Mandir Bhakt Sadan',
-            'address': 'Chatikara Road, Vrindavan, UP',
-            'durationMinutes': 35,
-            'timeRange': '01:20 PM - 01:55 PM',
-            'haltType': 'Manager Meeting & Facility Audit',
-          },
-        ],
-      },
-      '2026-11-13': {
-        'distance': 19.4,
-        'start': 'Vishram Ghat, Mathura, UP',
-        'end': 'Deeg Gate, Near Janmabhoomi, Mathura, UP',
-        'halts': [
-          {
-            'placeName': 'Dwarkadhish Niwas',
-            'address': 'Vishram Ghat Marg, Mathura, UP',
-            'durationMinutes': 25,
-            'timeRange': '11:00 AM - 11:25 AM',
-            'haltType': 'Stay Verification & Room Inspection',
-          },
-          {
-            'placeName': 'Braj Yatri Dharamshala',
-            'address': 'Deeg Gate, Mathura, UP',
-            'durationMinutes': 30,
-            'timeRange': '02:30 PM - 03:00 PM',
-            'haltType': 'Owner Onboarding Discussion',
-          },
-        ],
-      },
-      '2026-11-14': {
-        'distance': 22.5,
-        'start': 'Gokul Barrage Road, Gokul, Mathura, UP',
-        'end': 'Raman Reti Pilgrimage Area, Gokul, UP',
-        'halts': [
-          {
-            'placeName': 'Yamuna View Guest House',
-            'address': 'Gokul Ghat, Mathura, UP',
-            'durationMinutes': 18,
-            'timeRange': '10:30 AM - 10:48 AM',
-            'haltType': 'Stay Verification & Photo Audit',
-          },
-          {
-            'placeName': 'Gokul Dham Ashram',
-            'address': 'Near Raman Reti, Gokul, UP',
-            'durationMinutes': 26,
-            'timeRange': '01:15 PM - 01:41 PM',
-            'haltType': 'Manager Agreement & Onboarding',
-          },
-        ],
-      },
-      '2026-11-15': {
-        'distance': 27.3,
-        'start': 'Dan Ghati Mandir, Govardhan, Mathura, UP',
-        'end': 'Radha Kund Parikrama Marg, Govardhan, UP',
-        'halts': [
-          {
-            'placeName': 'Giriraj Sewa Sadan',
-            'address': 'Govardhan Road, Mathura, UP',
-            'durationMinutes': 24,
-            'timeRange': '11:30 AM - 11:54 AM',
-            'haltType': 'Stay Verification & Form Fillup',
-          },
-          {
-            'placeName': 'Radha Kunj Atithi Grih',
-            'address': 'Radha Kund Parikrama, Govardhan, UP',
-            'durationMinutes': 32,
-            'timeRange': '03:00 PM - 03:32 PM',
-            'haltType': 'Owner Meeting & Document Collection',
-          },
-        ],
-      },
-      '2026-11-16': {
-        'distance': 24.6,
-        'start': 'Barsana Main Bus Stand Road, Barsana, UP',
-        'end': 'Priya Kund Marg, Barsana, Mathura, UP',
-        'halts': [
-          {
-            'placeName': 'Shri Radha Rani Kripa Ashram',
-            'address': 'Barsana Parikrama Marg, UP',
-            'durationMinutes': 28,
-            'timeRange': '10:45 AM - 11:13 AM',
-            'haltType': 'Stay Onboarding & Agreement',
-          },
-          {
-            'placeName': 'Kirti Mandir Guest House',
-            'address': 'Barsana Road, Mathura, UP',
-            'durationMinutes': 22,
-            'timeRange': '02:15 PM - 02:37 PM',
-            'haltType': 'Facility Audit & Room Verification',
-          },
-        ],
-      },
-      '2026-11-17': {
-        'distance': 18.2,
-        'start': 'Bhaktivedanta Swami Marg, Vrindavan, UP',
-        'end': 'Sunrakh Road, Vrindavan, Mathura, UP',
-        'halts': [
-          {
-            'placeName': 'Radha Raman Sewa Sadan',
-            'address': 'Near Temple Marg, Vrindavan, UP',
-            'durationMinutes': 20,
-            'timeRange': '11:00 AM - 11:20 AM',
-            'haltType': 'Stay Verification & Inspection',
-          },
-          {
-            'placeName': 'Gopinath Bhakt Niwas',
-            'address': 'Gopinath Bazar, Vrindavan, UP',
-            'durationMinutes': 30,
-            'timeRange': '01:30 PM - 02:00 PM',
-            'haltType': 'Manager Meeting & Verification',
-          },
-        ],
-      },
-      '2026-11-18': {
-        'distance': 14.8,
-        'start': 'Bankey Bihari Colony, Vrindavan, UP',
-        'end': 'Keshi Ghat Parikrama Marg, Vrindavan, UP',
-        'halts': [
-          {
-            'placeName': 'Vrindavan Heritage Dharamshala',
-            'address': 'Raman Reti Road, Vrindavan, UP',
-            'durationMinutes': 25,
-            'timeRange': '11:15 AM - 11:40 AM',
-            'haltType': 'Stay Onboarding & Owner Discussion',
-          },
-          {
-            'placeName': 'Iskcon Balaram Atithi Bhavan',
-            'address': 'Chatikara Road, Vrindavan, UP',
-            'durationMinutes': 35,
-            'timeRange': '01:10 PM - 01:45 PM',
-            'haltType': 'Property Verification & Audit',
-          },
-        ],
-      },
-    };
-
     double? finalDistance;
     final dynamic rawDist =
         json['totalDistanceKm'] ??
@@ -300,39 +149,26 @@ class AttendanceModel {
         json['distance_km'];
     if (rawDist is num && rawDist > 0) {
       finalDistance = rawDist.toDouble();
-    } else if (recordDate != null &&
-        knownDailyMetrics.containsKey(recordDate)) {
-      finalDistance = knownDailyMetrics[recordDate]!['distance'] as double;
-    } else if (json['totalWorkingMinutes'] is num &&
-        (json['totalWorkingMinutes'] as num) > 0) {
-      final mins = (json['totalWorkingMinutes'] as num).toDouble();
-      finalDistance = double.parse(((mins / 60.0) * 2.2).toStringAsFixed(1));
+    } else {
+      finalDistance = 0.0;
     }
 
-    String? startAddr = (json['checkInAddress'] ?? inLoc['address'])
-        ?.toString();
-    if ((startAddr == null ||
-            startAddr.trim().isEmpty ||
-            startAddr == 'Location Recorded via GPS' ||
-            startAddr == 'Current Location Recorded via GPS') &&
-        recordDate != null &&
-        knownDailyMetrics.containsKey(recordDate)) {
-      startAddr = knownDailyMetrics[recordDate]!['start'] as String;
-    } else if (startAddr == null || startAddr.trim().isEmpty) {
-      startAddr = 'Bankey Bihari Colony, Vrindavan, UP';
+    String? startAddr = (json['checkInAddress'] ?? inLoc['address'])?.toString();
+    if (startAddr != null && startAddr.trim().isNotEmpty) {
+      startAddr = startAddr.trim();
+    } else if (inLat != null && inLng != null) {
+      startAddr = 'GPS: ${(inLat as num).toStringAsFixed(4)}° N, ${(inLng as num).toStringAsFixed(4)}° E';
+    } else {
+      startAddr = null;
     }
 
-    String? endAddr = (json['checkOutAddress'] ?? outLoc['address'])
-        ?.toString();
-    if ((endAddr == null ||
-            endAddr.trim().isEmpty ||
-            endAddr == 'Location Recorded via GPS' ||
-            endAddr == 'Current Location Recorded via GPS') &&
-        recordDate != null &&
-        knownDailyMetrics.containsKey(recordDate)) {
-      endAddr = knownDailyMetrics[recordDate]!['end'] as String;
-    } else if (endAddr == null || endAddr.trim().isEmpty) {
-      endAddr = 'Keshi Ghat Parikrama Marg, Vrindavan, UP';
+    String? endAddr = (json['checkOutAddress'] ?? outLoc['address'])?.toString();
+    if (endAddr != null && endAddr.trim().isNotEmpty) {
+      endAddr = endAddr.trim();
+    } else if (outLat != null && outLng != null) {
+      endAddr = 'GPS: ${(outLat as num).toStringAsFixed(4)}° N, ${(outLng as num).toStringAsFixed(4)}° E';
+    } else {
+      endAddr = null;
     }
 
     // Parse halts (> 5 minutes stoppages)
@@ -342,68 +178,49 @@ class AttendanceModel {
       parsedHalts = rawHalts
           .map((h) => ShiftHalt.fromJson(Map<String, dynamic>.from(h)))
           .toList();
-    } else if (recordDate != null && knownDailyMetrics.containsKey(recordDate)) {
-      final m = knownDailyMetrics[recordDate]!;
-      if (m['halts'] is List) {
-        parsedHalts = (m['halts'] as List)
-            .map((h) => ShiftHalt.fromJson(Map<String, dynamic>.from(h)))
-            .toList();
-      }
-    } else {
-      parsedHalts = const [
-        ShiftHalt(
-          placeName: 'Vrindavan Heritage Dharamshala',
-          address: 'Raman Reti Road, Vrindavan, UP',
-          durationMinutes: 25,
-          timeRange: '11:15 AM - 11:40 AM',
-          haltType: 'Stay Onboarding & Owner Discussion',
-        ),
-        ShiftHalt(
-          placeName: 'Iskcon Balaram Atithi Bhavan',
-          address: 'Chatikara Road, Vrindavan, UP',
-          durationMinutes: 35,
-          timeRange: '01:10 PM - 01:45 PM',
-          haltType: 'Property Verification & Audit',
-        ),
-      ];
     }
 
-    final rawNotes = json['notes']?.toString();
+    final rawNotes = json['notes']?.toString() ?? '';
     final isCheckedOut = json['checkedOut'] == true;
-    final hasCheckInCoords = inLat != null &&
-        inLng != null &&
-        ((inLat as num).abs() > 0.001 || (inLng as num).abs() > 0.001);
-    final isAutoCheckIn =
-        !isCheckedOut &&
-        !hasCheckInCoords &&
-        rawNotes != null &&
-        (rawNotes == 'Shift login check-in' ||
-            rawNotes.toLowerCase().contains('login check-in'));
+    final rawStartAddr = (json['checkInAddress'] ?? inLoc['address'])?.toString() ?? '';
+
+    // Prevent automatic check-in on login:
+    // If the server auto-created a record upon login without explicit coordinates or with login notes,
+    // do NOT treat it as an active field shift. The agent must explicitly tap Check-In.
+    final isAutoLoginCheckIn = rawNotes.toLowerCase().contains('login') ||
+        rawNotes == 'Shift login check-in' ||
+        rawNotes == 'Initial shift login attendance' ||
+        json['isAutoCheckIn'] == true ||
+        (!isCheckedOut && rawStartAddr == 'Mathura, Uttar Pradesh') ||
+        (!isCheckedOut && rawStartAddr.contains('Mathura, Uttar Pradesh')) ||
+        (!isCheckedOut && (inLat == null || inLat == 0) && (inLng == null || inLng == 0));
+
+    final isCheckedIn = (json['checkedIn'] == true) && !isAutoLoginCheckIn;
 
     return AttendanceModel(
       id: (json['_id'] ?? json['id'])?.toString(),
       date: recordDate,
-      checkedIn: (json['checkedIn'] == true) && !isAutoCheckIn,
-      checkInTime: isAutoCheckIn ? null : parsedInTime,
-      checkInLat: inLat != null ? (inLat as num).toDouble() : 27.5812,
-      checkInLng: inLng != null ? (inLng as num).toDouble() : 77.6987,
+      checkedIn: isCheckedIn,
+      checkInTime: parsedInTime,
+      checkInLat: inLat != null ? (inLat as num).toDouble() : null,
+      checkInLng: inLng != null ? (inLng as num).toDouble() : null,
       checkInAddress: startAddr,
       checkedOut: isCheckedOut,
       checkOutTime: parsedOutTime,
-      checkOutLat: outLat != null ? (outLat as num).toDouble() : 27.5794,
-      checkOutLng: outLng != null ? (outLng as num).toDouble() : 77.7042,
+      checkOutLat: outLat != null ? (outLat as num).toDouble() : null,
+      checkOutLng: outLng != null ? (outLng as num).toDouble() : null,
       checkOutAddress: endAddr,
       totalDistanceKm: finalDistance,
       batteryLevel: json['batteryLevel'] != null
           ? (json['batteryLevel'] as num).toInt()
           : null,
-      notes: isAutoCheckIn ? null : rawNotes,
+      notes: rawNotes,
       photoUrl: json['photoUrl']?.toString(),
       totalWorkingMinutes: json['totalWorkingMinutes'] != null
           ? (json['totalWorkingMinutes'] as num).toInt()
           : null,
       formattedWorkingHours: json['formattedWorkingHours']?.toString(),
-      status: isAutoCheckIn ? null : json['status']?.toString(),
+      status: json['status']?.toString(),
       halts: parsedHalts,
     );
   }

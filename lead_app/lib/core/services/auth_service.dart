@@ -8,6 +8,7 @@ import '../../models/user_model.dart';
 import '../constants/api_endpoints.dart';
 import '../constants/app_constants.dart';
 import '../network/api_client.dart';
+import 'tracking_service.dart';
 
 class AuthService {
   final ApiClient _apiClient = ApiClient.instance;
@@ -190,10 +191,17 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    // While the token is still valid: stop GPS, send queued route points,
+    // and clear the queue so another account never uploads them.
+    await TrackingService.instance.beforeLogout();
     ApiClient.instance.setToken(null);
     await _storage.delete(key: AppConstants.tokenKey);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(AppConstants.tokenKey);
     await prefs.remove(AppConstants.userKey);
+    await prefs.remove('tirvona_today_attendance_cache');
+    await prefs.remove('tirvona_tracked_distance_km');
+    await prefs.remove('tirvona_tracked_distance_date');
+    await prefs.remove('tirvona_tracked_halts');
   }
 }

@@ -1,4 +1,6 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -70,13 +72,12 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
         summary['totalDaysPresent'] ?? records.where((r) => r.checkedIn).length;
     final calculatedDistanceSum = records.fold<double>(
       0.0,
-      (sum, r) => sum + (r.totalDistanceKm ?? 0.0),
+      (sum, r) => sum + _resolveDistance(r, att.todayStatus, todayStr),
     );
-    final totalDistance =
-        (summary['totalDistanceKm'] != null &&
-            (summary['totalDistanceKm'] as num) > 0)
+    final summaryDist = (summary['totalDistanceKm'] is num)
         ? (summary['totalDistanceKm'] as num).toDouble()
-        : calculatedDistanceSum;
+        : 0.0;
+    final totalDistance = math.max(summaryDist, calculatedDistanceSum);
     final totalHoursWorked =
         summary['totalHoursWorked'] ??
         '${(records.fold<int>(0, (sum, r) => sum + (r.totalWorkingMinutes ?? 0)) / 60).toStringAsFixed(1)} hrs';
@@ -189,6 +190,7 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
                   leadsForDay: leadsForDay,
                   todayStr: todayStr,
                   yesterdayStr: yesterdayStr,
+                  todayStatus: att.todayStatus,
                 );
               }),
           ],
@@ -389,11 +391,87 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
     }
   }
 
+  double _resolveDistance(
+    AttendanceModel record,
+    AttendanceModel todayStatus,
+    String todayStr,
+  ) {
+    if (record.totalDistanceKm != null && record.totalDistanceKm! > 0) {
+      return record.totalDistanceKm!;
+    }
+    final recordDateStr =
+        record.date ??
+        (record.checkInTime != null
+            ? DateFormat('yyyy-MM-dd').format(record.checkInTime!)
+            : '');
+    if ((recordDateStr == todayStr || record.id == todayStatus.id) &&
+        todayStatus.totalDistanceKm != null &&
+        todayStatus.totalDistanceKm! > 0) {
+      return todayStatus.totalDistanceKm!;
+    }
+    // Fallback: calculate directly from GPS coordinates if start & end fixes exist
+    if (record.checkInLat != null &&
+        record.checkInLng != null &&
+        record.checkOutLat != null &&
+        record.checkOutLng != null &&
+        (record.checkInLat != record.checkOutLat ||
+            record.checkInLng != record.checkOutLng)) {
+      final meters = Geolocator.distanceBetween(
+        record.checkInLat!,
+        record.checkInLng!,
+        record.checkOutLat!,
+        record.checkOutLng!,
+      );
+      if (meters > 30) {
+        return double.parse((meters / 1000.0).toStringAsFixed(1));
+      }
+    }
+    return 0.0;
+  }
+
+  /// Resolve working minutes for a record using multiple fallbacks:
+  /// 1. record.totalWorkingMinutes from backend (if > 0)
+  /// 2. shiftDuration from checkIn/checkOut timestamps (if > 0)
+  /// 3. For today's record, use todayStatus data
+  int _resolveWorkMinutes(
+    AttendanceModel record,
+    AttendanceModel todayStatus,
+    String todayStr,
+  ) {
+    // 1. Use totalWorkingMinutes from backend if available and > 0
+    if (record.totalWorkingMinutes != null && record.totalWorkingMinutes! > 0) {
+      return record.totalWorkingMinutes!;
+    }
+    // 2. Use shiftDuration (checkOutTime - checkInTime) if > 0
+    final dur = record.shiftDuration;
+    if (dur != null && dur.inMinutes > 0) {
+      return dur.inMinutes;
+    }
+    // 3. For today's record, check todayStatus
+    final recordDateStr =
+        record.date ??
+        (record.checkInTime != null
+            ? DateFormat('yyyy-MM-dd').format(record.checkInTime!)
+            : '');
+    if (recordDateStr == todayStr || record.id == todayStatus.id) {
+      if (todayStatus.totalWorkingMinutes != null &&
+          todayStatus.totalWorkingMinutes! > 0) {
+        return todayStatus.totalWorkingMinutes!;
+      }
+      final todayDur = todayStatus.shiftDuration;
+      if (todayDur != null && todayDur.inMinutes > 0) {
+        return todayDur.inMinutes;
+      }
+    }
+    return 0;
+  }
+
   Widget _buildDailyWorkCard({
     required AttendanceModel record,
     required List<LeadModel> leadsForDay,
     required String todayStr,
     required String yesterdayStr,
+    required AttendanceModel todayStatus,
   }) {
     final recordDateStr =
         record.date ??
@@ -410,7 +488,7 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
       dateLabel = DateFormat('EEE, d MMM yyyy').format(record.checkInTime!);
     }
 
-    final distanceKm = record.totalDistanceKm ?? 0.0;
+    final distanceKm = _resolveDistance(record, todayStatus, todayStr);
     final isShiftActive = record.isShiftActive;
 
     // Working time calculation
@@ -421,9 +499,11 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
       if (record.checkOutTime != null) {
         final outTimeStr = DateFormat('hh:mm a').format(record.checkOutTime!);
         timeRange = '$inTimeStr - $outTimeStr';
-        final dur = record.shiftDuration ?? Duration.zero;
-        final hours = dur.inHours;
-        final mins = dur.inMinutes.remainder(60);
+        // Use totalWorkingMinutes from backend if available and > 0,
+        // otherwise fall back to shiftDuration (checkOut - checkIn)
+        final workMins = _resolveWorkMinutes(record, todayStatus, todayStr);
+        final hours = workMins ~/ 60;
+        final mins = workMins % 60;
         durationText = '${hours}h ${mins}m';
       } else {
         timeRange = '$inTimeStr - Ongoing';
@@ -435,17 +515,23 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
     final startAddress =
         (record.checkInAddress != null &&
             record.checkInAddress!.trim().isNotEmpty &&
-            record.checkInAddress != 'Location Recorded via GPS')
+            record.checkInAddress != 'Location Recorded via GPS' &&
+            record.checkInAddress != 'Mathura, Uttar Pradesh')
         ? record.checkInAddress!
-        : 'Bankey Bihari Colony, Vrindavan, UP';
+        : ((record.checkInLat != null && record.checkInLng != null)
+            ? 'GPS: ${record.checkInLat!.toStringAsFixed(4)}° N, ${record.checkInLng!.toStringAsFixed(4)}° E'
+            : 'Check-in location recorded');
     final endAddress =
         (record.checkOutAddress != null &&
             record.checkOutAddress!.trim().isNotEmpty &&
-            record.checkOutAddress != 'Location Recorded via GPS')
+            record.checkOutAddress != 'Location Recorded via GPS' &&
+            record.checkOutAddress != 'Mathura, Uttar Pradesh')
         ? record.checkOutAddress!
         : (isShiftActive
-              ? 'Active on field (Keshi Ghat Parikrama Marg)'
-              : 'Keshi Ghat Parikrama Marg, Vrindavan, UP');
+              ? 'Active on field (Live route tracking)'
+              : ((record.checkOutLat != null && record.checkOutLng != null)
+                  ? 'GPS: ${record.checkOutLat!.toStringAsFixed(4)}° N, ${record.checkOutLng!.toStringAsFixed(4)}° E'
+                  : 'Pending check-out'));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1189,7 +1275,7 @@ class _AgentWorkHistoryScreenState extends State<AgentWorkHistoryScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Punch check-in on the Attendance screen to record field visits and tracking.',
+              'Check-in on the Attendance screen to record field visits and tracking.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),

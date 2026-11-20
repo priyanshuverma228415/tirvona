@@ -7,6 +7,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/tracking_service.dart';
 import '../../models/user_model.dart';
+import '../../providers/attendance_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/lead_provider.dart';
 import '../attendance/agent_work_history_screen.dart';
@@ -27,8 +28,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     final user = context.read<AuthProvider>().user;
-    _consent = user?.trackingConsent ?? true;
+    _consent = user?.trackingConsent ?? false;
     _loadServerUrl();
+    _loadConsent();
+  }
+
+  /// Shows what the server actually has, not a local default.
+  void _loadConsent() async {
+    final granted = await TrackingService.instance.getConsent();
+    if (mounted && granted != null) setState(() => _consent = granted);
   }
 
   void _loadServerUrl() async {
@@ -38,14 +46,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _toggleConsent(bool val) async {
     setState(() => _consent = val);
-    await TrackingService.instance.setConsent(val);
+    final ok = await TrackingService.instance.setConsent(val);
+    if (!ok && mounted) setState(() => _consent = !val);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            val
-                ? 'Location tracking enabled for active shifts'
-                : 'Location tracking paused',
+            !ok
+                ? 'Could not update tracking. Check your connection and retry.'
+                : val
+                    ? 'Location tracking enabled for active shifts'
+                    : 'Location tracking paused',
           ),
         ),
       );
@@ -639,6 +650,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 );
                 if (confirm == true) {
+                  if (context.mounted) {
+                    context.read<AttendanceProvider>().resetState();
+                  }
                   await auth.logout();
                   nav.pushAndRemoveUntil(
                     MaterialPageRoute(builder: (_) => const LoginScreen()),

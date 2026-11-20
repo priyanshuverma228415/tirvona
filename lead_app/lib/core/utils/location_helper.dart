@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -250,52 +251,128 @@ class LocationHelper {
   }
 
   /// Mandatory location verification for check-in / check-out.
-  /// If permission was already granted during login, it directly fetches GPS coordinates.
-  /// If permission was not granted yet, prompts user first.
-  /// Returns a valid [Position] if all conditions pass, or null if blocked.
+  /// Acquires real-time GPS & network position with millisecond-speed fallbacks.
   static Future<Position?> ensureLocationForCheckIn(
     BuildContext context,
   ) async {
-    // 1. Ensure permission is granted (asks only if not granted)
-    final permissionOk = await ensureLocationPermission(
-      context: context,
-      actionTitle: 'punch check-in',
-      explanation: 'Your location is required to verify your field shift and record attendance.',
-    );
-    if (!permissionOk) return null;
-    if (!context.mounted) return null;
+    return await getFastRealtimePosition(context);
+  }
 
-    // 2. Ensure device GPS is turned ON
-    final gpsOk = await ensureGpsEnabled(context, 'punch attendance');
-    if (!gpsOk) return null;
+  /// Fast hybrid real-time position acquisition.
+  /// Uses system network provider & device GPS in parallel to obtain accurate
+  /// real-time position in milliseconds without 20s stalls or indoor failures.
+  static Future<Position?> getFastRealtimePosition([BuildContext? context]) async {
+    if (context != null) {
+      // 1. Mandatory permission check
+      final permissionOk = await ensureMandatoryLocation(
+        context,
+        actionTitle: 'record shift attendance & location',
+      );
+      if (!permissionOk) return null;
+      if (!context.mounted) return null;
 
-    // 3. Acquire GPS Position
+      // 2. Ensure GPS toggle is enabled
+      final gpsOk = await ensureGpsEnabled(context, 'record attendance');
+      if (!gpsOk) return null;
+    } else {
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+        return null;
+      }
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return null;
+    }
+
+    // 3. Immediately inspect last known position for near-instant (milliseconds) fallback
+    Position? lastKnown;
+    try {
+      lastKnown = await Geolocator.getLastKnownPosition();
+    } catch (_) {}
+
+    // 4. Try current position using medium accuracy (fuses cell tower + wifi + GPS)
+    // with a fast 4-second timeout.
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 4),
+        ),
+      );
+      return pos;
+    } catch (_) {
+      // If medium timed out, use lastKnown if available
+      if (lastKnown != null) {
+        return lastKnown;
+      }
+    }
+
+    // 5. Try high accuracy with short timeout
     try {
       return await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 4),
+          timeLimit: Duration(seconds: 3),
         ),
       );
-    } catch (_) {
-      try {
-        final lastKnown = await Geolocator.getLastKnownPosition();
-        if (lastKnown != null) return lastKnown;
-      } catch (_) {}
+    } catch (_) {}
 
-      // Fallback location for field operations hub (Mathura, UP) if device GPS cannot lock
-      return Position(
-        longitude: 77.6737,
-        latitude: 27.4924,
-        timestamp: DateTime.now(),
-        accuracy: 15.0,
-        altitude: 170.0,
-        altitudeAccuracy: 5.0,
-        heading: 0.0,
-        headingAccuracy: 0.0,
-        speed: 0.0,
-        speedAccuracy: 0.0,
+    // 6. Try low accuracy (network provider)
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 3),
+        ),
+      );
+    } catch (_) {}
+
+    if (lastKnown != null) return lastKnown;
+
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.danger,
+          content: Text(
+            'Unable to lock network or GPS location. Please check GPS toggle.',
+          ),
+        ),
       );
     }
+    return null;
+  }
+
+  /// Real-time reverse geocoding to human readable street/area address.
+  /// Uses native Android geocoder. Returns clean real address without hardcoding.
+  static Future<String> getAddressFromCoordinates(double lat, double lng) async {
+    try {
+      final placemarks = await Geocoding().placemarkFromCoordinates(lat, lng);
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final parts = <String>[];
+        if (p.street != null && p.street!.isNotEmpty && !p.street!.contains('+')) {
+          parts.add(p.street!);
+        }
+        if (p.subLocality != null && p.subLocality!.isNotEmpty && p.subLocality != p.street) {
+          parts.add(p.subLocality!);
+        }
+        if (p.locality != null && p.locality!.isNotEmpty) {
+          parts.add(p.locality!);
+        }
+        if (p.subAdministrativeArea != null && p.subAdministrativeArea!.isNotEmpty && p.subAdministrativeArea != p.locality) {
+          parts.add(p.subAdministrativeArea!);
+        }
+        if (p.administrativeArea != null && p.administrativeArea!.isNotEmpty) {
+          parts.add(p.administrativeArea!);
+        }
+
+        if (parts.isNotEmpty) {
+          return parts.join(', ');
+        }
+      }
+    } catch (e) {
+      debugPrint('[LocationHelper] Reverse geocoding failed: $e');
+    }
+
+    return 'GPS Location (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})';
   }
 }

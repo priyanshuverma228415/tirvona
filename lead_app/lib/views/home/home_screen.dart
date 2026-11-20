@@ -12,6 +12,8 @@ import '../leads/create_lead_screen.dart';
 import '../leads/lead_detail_screen.dart';
 import '../leads/widgets/lead_card.dart';
 import '../profile/profile_screen.dart';
+import '../tracking/my_live_map_screen.dart';
+import '../tracking/team_live_map_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,6 +24,53 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
+  bool _isCheckingIn = false;
+
+  void _handleBannerAction() async {
+    final att = context.read<AttendanceProvider>();
+    final isShiftActive = att.todayStatus.isShiftActive;
+
+    if (isShiftActive || att.todayStatus.checkedOut) {
+      // If shift is active or completed, open full Attendance screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+      );
+      return;
+    }
+
+    // Explicit Check-In triggered by user tapping the button
+    setState(() => _isCheckingIn = true);
+    try {
+      final position = await LocationHelper.ensureLocationForCheckIn(context);
+      if (!mounted) return;
+      if (position == null) {
+        setState(() => _isCheckingIn = false);
+        return;
+      }
+
+      final ok = await att.punchCheckIn(position: position);
+      if (mounted) {
+        if (ok) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: AppColors.success,
+              content: Text(
+                'Shift started! Real-time Check-In recorded successfully.',
+              ),
+            ),
+          );
+        } else {
+          final err = att.errorMessage ?? 'Check-in failed. Please retry.';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(backgroundColor: AppColors.danger, content: Text(err)),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isCheckingIn = false);
+    }
+  }
 
   @override
   void initState() {
@@ -51,6 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.user;
     final isShiftActive = attendanceProvider.todayStatus.isShiftActive;
+    final isSupervisor = user?.role == 'field_supervisor';
 
     final stats = leadProvider.stats;
     final filteredLeads = leadProvider.filteredLeads;
@@ -184,6 +234,24 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                         tooltip: 'Sync Offline Data',
                       ),
+
+                      // Team Live Map (supervisors)
+                      if (isSupervisor)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.map_rounded,
+                            color: AppColors.primary,
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const TeamLiveMapScreen(),
+                              ),
+                            );
+                          },
+                          tooltip: 'Team Live Map',
+                        ),
 
                       // Daily Work & Analytics
                       IconButton(
@@ -355,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   .todayStatus
                                                   .checkedOut
                                               ? 'Daily route distance recorded'
-                                              : 'Punch Check-In to start your field shift'),
+                                              : 'Check-In to start your field shift'),
                                     style: const TextStyle(
                                       fontSize: 11,
                                       color: AppColors.textSecondary,
@@ -384,25 +452,29 @@ class _HomeScreenState extends State<HomeScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const AttendanceScreen(),
-                                  ),
-                                );
-                              },
-                              child: Text(
-                                isShiftActive
-                                    ? 'Check-Out'
-                                    : (attendanceProvider.todayStatus.checkedOut
-                                          ? 'Summary'
-                                          : 'Punch In'),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              onPressed: (attendanceProvider.isPunching || _isCheckingIn)
+                                  ? null
+                                  : _handleBannerAction,
+                              child: (attendanceProvider.isPunching || _isCheckingIn)
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(
+                                      isShiftActive
+                                          ? 'Check-Out'
+                                          : (attendanceProvider.todayStatus.checkedOut
+                                                ? 'Summary'
+                                                : 'Check-In'),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             ),
                           ],
                         ),
@@ -421,7 +493,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
-                                    'Today: ${(attendanceProvider.todayStatus.totalDistanceKm ?? 14.8).toStringAsFixed(1)} km • ${attendanceProvider.todayStatus.checkInAddress ?? 'Bankey Bihari Colony'}',
+                                    'Today: ${(attendanceProvider.todayStatus.totalDistanceKm ?? 0.0).toStringAsFixed(1)} km • ${(attendanceProvider.todayStatus.checkInAddress != null && attendanceProvider.todayStatus.checkInAddress!.isNotEmpty) ? attendanceProvider.todayStatus.checkInAddress! : 'Live Field Shift'}',
                                     style: const TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
@@ -432,6 +504,58 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+                        ],
+                        if (isShiftActive) ...[
+                          const SizedBox(height: 8),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const MyLiveMapScreen(),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.successLight,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: AppColors.successBorder,
+                                ),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.navigation_rounded,
+                                    size: 15,
+                                    color: AppColors.success,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Open Live Map • लाइव मैप पर अपना रास्ता देखें',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.success,
+                                      ),
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.arrow_forward_ios,
+                                    size: 11,
+                                    color: AppColors.success,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -485,6 +609,81 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+
+              // Team Live Map card (supervisors)
+              if (isSupervisor)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Material(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(18),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const TeamLiveMapScreen(),
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.map_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Team Live Map',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      'See your field executives moving live • टीम लाइव मैप',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 13,
+                                color: Colors.white,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
               // Metrics Row (4 Cards)
               SliverToBoxAdapter(

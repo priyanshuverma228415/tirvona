@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../models/attendance_model.dart';
 import '../core/services/attendance_service.dart';
 import '../core/services/tracking_service.dart';
+import '../core/utils/location_helper.dart';
 
 class AttendanceProvider extends ChangeNotifier {
   final AttendanceService _attendanceService = AttendanceService();
@@ -31,11 +32,57 @@ class AttendanceProvider extends ChangeNotifier {
 
     try {
       final res = await _attendanceService.getHistoryData();
-      _history = (res['records'] as List<AttendanceModel>?) ?? [];
+      final loadedRecords = (res['records'] as List<AttendanceModel>?) ?? [];
       _historySummary = (res['summary'] as Map<String, dynamic>?) ?? {};
+
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      _history = loadedRecords.map((r) {
+        final rDate = r.date ??
+            (r.checkInTime != null
+                ? DateFormat('yyyy-MM-dd').format(r.checkInTime!)
+                : null);
+        if ((rDate == todayStr || r.id == _todayStatus.id) &&
+            (r.totalDistanceKm == null || r.totalDistanceKm == 0.0) &&
+            (_todayStatus.totalDistanceKm != null && _todayStatus.totalDistanceKm! > 0)) {
+          return AttendanceModel(
+            id: r.id,
+            date: r.date,
+            checkedIn: r.checkedIn,
+            checkInTime: r.checkInTime,
+            checkInLat: r.checkInLat,
+            checkInLng: r.checkInLng,
+            checkInAddress: r.checkInAddress,
+            checkedOut: r.checkedOut,
+            checkOutTime: r.checkOutTime,
+            checkOutLat: r.checkOutLat,
+            checkOutLng: r.checkOutLng,
+            checkOutAddress: r.checkOutAddress,
+            totalDistanceKm: _todayStatus.totalDistanceKm,
+            batteryLevel: r.batteryLevel,
+            notes: r.notes,
+            photoUrl: r.photoUrl,
+            totalWorkingMinutes: r.totalWorkingMinutes,
+            formattedWorkingHours: r.formattedWorkingHours,
+            status: r.status,
+            halts: r.halts,
+          );
+        }
+        return r;
+      }).toList();
     } catch (_) {}
 
     _isLoadingHistory = false;
+    notifyListeners();
+  }
+
+  void resetState() {
+    _todayStatus = AttendanceModel();
+    _history = [];
+    _historySummary = {};
+    _isLoading = false;
+    _isLoadingHistory = false;
+    _isPunching = false;
+    _errorMessage = null;
     notifyListeners();
   }
 
@@ -44,13 +91,19 @@ class AttendanceProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _todayStatus = await _attendanceService.getTodayStatus();
+      final status = await _attendanceService.getTodayStatus();
+      _todayStatus = status;
+
       if (_todayStatus.isShiftActive) {
         TrackingService.instance.startTracking();
       } else {
         TrackingService.instance.stopTracking();
       }
     } catch (_) {}
+
+    // Send any route points still saved on the phone (earlier shifts, offline
+    // periods, or fixes queued by an older app version).
+    TrackingService.instance.uploadPending();
 
     _isLoading = false;
     notifyListeners();
@@ -74,41 +127,28 @@ class AttendanceProvider extends ChangeNotifier {
         return false;
       }
 
+      // Fast real-time reverse geocoding in milliseconds
+      final geoAddress = await LocationHelper.getAddressFromCoordinates(pos.latitude, pos.longitude);
+      final addressToSend = geoAddress.isNotEmpty
+          ? geoAddress
+          : 'GPS: ${pos.latitude.toStringAsFixed(4)}° N, ${pos.longitude.toStringAsFixed(4)}° E';
+
       final result = await _attendanceService.checkIn(
         lat: pos.latitude,
         lng: pos.longitude,
         accuracy: pos.accuracy,
+        address: addressToSend,
         notes: notes,
       );
 
-      // Explicit user punch: Shift is now active!
-      final startAddress = (result.checkInAddress != null &&
-              result.checkInAddress!.trim().isNotEmpty &&
-              result.checkInAddress != 'Current Location Recorded via GPS' &&
-              result.checkInAddress != 'Location Recorded via GPS')
-          ? result.checkInAddress!
-          : (_todayStatus.checkInAddress ?? 'Bankey Bihari Colony, Vrindavan, UP');
+      // Reset today's distance & live halts for the new shift
+      await TrackingService.instance.resetDistance();
 
-      final defaultTodayHalts = const [
-        ShiftHalt(
-          placeName: 'Vrindavan Heritage Dharamshala',
-          address: 'Raman Reti Road, Vrindavan, UP',
-          durationMinutes: 25,
-          timeRange: '11:15 AM - 11:40 AM',
-          haltType: 'Stay Onboarding & Owner Discussion',
-          lat: 27.5756,
-          lng: 77.6892,
-        ),
-        ShiftHalt(
-          placeName: 'Iskcon Balaram Atithi Bhavan',
-          address: 'Chatikara Road, Vrindavan, UP',
-          durationMinutes: 35,
-          timeRange: '01:10 PM - 01:45 PM',
-          haltType: 'Property Verification & Audit',
-          lat: 27.5714,
-          lng: 77.6784,
-        ),
-      ];
+      final recordAddress = (result.checkInAddress != null &&
+              result.checkInAddress!.trim().isNotEmpty &&
+              result.checkInAddress != 'Mathura, Uttar Pradesh')
+          ? result.checkInAddress!
+          : addressToSend;
 
       _todayStatus = AttendanceModel(
         id: result.id ?? _todayStatus.id,
@@ -117,14 +157,17 @@ class AttendanceProvider extends ChangeNotifier {
         checkInTime: result.checkInTime ?? DateTime.now(),
         checkInLat: pos.latitude,
         checkInLng: pos.longitude,
-        checkInAddress: startAddress,
+        checkInAddress: recordAddress,
         checkedOut: false,
-        totalDistanceKm: (result.totalDistanceKm != null && result.totalDistanceKm! > 0)
-            ? result.totalDistanceKm
-            : (_todayStatus.totalDistanceKm ?? 14.8),
+        totalDistanceKm: 0.0,
         status: 'checked_in',
-        halts: result.halts.isNotEmpty ? result.halts : defaultTodayHalts,
+        halts: const [],
         notes: (notes != null && notes.trim().isNotEmpty) ? notes.trim() : 'Field shift check-in',
+      );
+      await _attendanceService.saveLocalTodayStatus(_todayStatus);
+      await TrackingService.instance.setConsent(
+        true,
+        deviceLabel: 'Field Console app',
       );
       TrackingService.instance.startTracking();
       loadHistory();
@@ -158,27 +201,43 @@ class AttendanceProvider extends ChangeNotifier {
         return false;
       }
 
+      // Fast real-time reverse geocoding in milliseconds
+      final geoAddress = await LocationHelper.getAddressFromCoordinates(pos.latitude, pos.longitude);
+      final addressToSend = geoAddress.isNotEmpty
+          ? geoAddress
+          : 'GPS: ${pos.latitude.toStringAsFixed(4)}° N, ${pos.longitude.toStringAsFixed(4)}° E';
+      final trackedKm = TrackingService.instance.distanceTravelledKm;
+
+      // Upload the remaining route points first, so they land inside the
+      // shift before it closes; then check out; then stop location.
+      await TrackingService.instance.flushBeforeCheckOut(finalPosition: pos);
+
       final result = await _attendanceService.checkOut(
         lat: pos.latitude,
         lng: pos.longitude,
         accuracy: pos.accuracy,
+        address: addressToSend,
         notes: notes,
+        distanceKm: trackedKm,
       );
 
-      // Explicit user check-out: Shift is completed!
-      final startAddress = (_todayStatus.checkInAddress != null &&
-              _todayStatus.checkInAddress!.trim().isNotEmpty &&
-              _todayStatus.checkInAddress != 'Current Location Recorded via GPS' &&
-              _todayStatus.checkInAddress != 'Location Recorded via GPS')
+      final startAddress = (_todayStatus.checkInAddress != null && _todayStatus.checkInAddress!.trim().isNotEmpty)
           ? _todayStatus.checkInAddress!
-          : 'Bankey Bihari Colony, Vrindavan, UP';
+          : addressToSend;
 
       final endAddress = (result.checkOutAddress != null &&
               result.checkOutAddress!.trim().isNotEmpty &&
-              result.checkOutAddress != 'Current Location Recorded via GPS' &&
-              result.checkOutAddress != 'Location Recorded via GPS')
+              result.checkOutAddress != 'Mathura, Uttar Pradesh')
           ? result.checkOutAddress!
-          : 'Keshi Ghat Parikrama Marg, Vrindavan, UP';
+          : addressToSend;
+
+      final finalDist = (result.totalDistanceKm != null && result.totalDistanceKm! > 0)
+          ? result.totalDistanceKm!
+          : (trackedKm > 0 ? double.parse(trackedKm.toStringAsFixed(2)) : 0.0);
+
+      final halts = TrackingService.instance.trackedHalts.isNotEmpty
+          ? TrackingService.instance.trackedHalts
+          : result.halts;
 
       _todayStatus = AttendanceModel(
         id: result.id ?? _todayStatus.id,
@@ -193,14 +252,16 @@ class AttendanceProvider extends ChangeNotifier {
         checkOutLat: pos.latitude,
         checkOutLng: pos.longitude,
         checkOutAddress: endAddress,
-        totalDistanceKm: (result.totalDistanceKm != null && result.totalDistanceKm! > 0)
-            ? result.totalDistanceKm
-            : (_todayStatus.totalDistanceKm ?? 14.8),
+        totalDistanceKm: finalDist,
         status: 'checked_out',
-        halts: _todayStatus.halts.isNotEmpty ? _todayStatus.halts : result.halts,
+        halts: halts,
         notes: notes ?? 'Field shift check-out',
       );
+      await _attendanceService.saveLocalTodayStatus(_todayStatus);
       TrackingService.instance.stopTracking();
+      // Anything the flush could not send (e.g. no signal) is still queued
+      // and stamped inside the shift; try once more now.
+      TrackingService.instance.uploadPending();
       loadHistory();
 
       _isPunching = false;
@@ -215,24 +276,6 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   Future<Position?> _getCurrentLocation() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-    if (!enabled) return null;
-
-    final permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      return null;
-    }
-
-    try {
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-    } catch (_) {
-      return await Geolocator.getLastKnownPosition();
-    }
+    return await LocationHelper.getFastRealtimePosition();
   }
 }
